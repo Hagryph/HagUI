@@ -38,18 +38,21 @@ bool Plugin::OnLoad(const skse::Interface* skse) {
 
 // ---- SKSE ABI exports (the only free functions; they delegate to Plugin) ----
 
-extern "C" __declspec(dllexport) skse::PluginVersionData SKSEPlugin_Version = [] {
-    skse::PluginVersionData v{};
-    v.dataVersion   = skse::PluginVersionData::kVersion;
-    v.pluginVersion = 1;
-    ::strcpy_s(v.name, "HagUI");
-    ::strcpy_s(v.author, "Hagryph");
-    v.versionIndependence  = 0;  // pinned to the exact runtime(s) listed below
-    v.compatibleVersions[0] = skse::kRuntime_1_6_1170;
-    v.compatibleVersions[1] = 0;
-    v.seVersionRequired     = 0;
-    return v;
-}();
+// MUST be constant-initialized: SKSE reads this struct from the DLL's static data
+// WITHOUT running our code (so an incompatible plugin can't crash the game during the
+// version check). A runtime initializer (e.g. strcpy_s in a lambda) leaves it zeroed
+// at probe time -> SKSE reports "bad version data". So: constinit + literals only.
+extern "C" __declspec(dllexport) constinit skse::PluginVersionData SKSEPlugin_Version = {
+    skse::PluginVersionData::kVersion,   // dataVersion
+    1,                                    // pluginVersion
+    "HagUI",                              // name
+    "Hagryph",                            // author
+    "",                                   // supportEmail
+    0,                                    // versionIndependenceEx
+    0,                                    // versionIndependence (0 => pin exact runtime below)
+    { skse::kRuntime_1_6_1170 },          // compatibleVersions (rest zero-filled)
+    0,                                    // seVersionRequired (0 => any)
+};
 
 extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const skse::Interface* a_skse) {
     return hag::Plugin::Get().OnLoad(a_skse);
