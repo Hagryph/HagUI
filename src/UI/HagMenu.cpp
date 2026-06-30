@@ -52,11 +52,39 @@ namespace {
         HAG_INFO("HagUIMenu::RegisterFuncs");   // TODO: register a 'Close' AS callback
     }
 
-    unsigned int HagProcessMessage(void* /*self*/, void* msg) {
+    // printf-style GFx invoke (confirmed): Invoke(view, "_root.method", "%d ...", ints...)
+    using InvokeF = void (*)(void* view, const char* method, const char* fmt, ...);
+
+    void DrawWelcome(void* view) {
+        if (!view) { HAG_WARN("DrawWelcome: no view"); return; }
+        const auto inv = reinterpret_cast<InvokeF>(offsets::FromRVA(offsets::kGFxMovie_Invoke));
+        // near-black panel, centered (stage is 1280x720)
+        inv(view, "_root.clear", "");
+        inv(view, "_root.beginFill", "%d %d", 0x121013, 100);
+        inv(view, "_root.moveTo", "%d %d", 340, 240);
+        inv(view, "_root.lineTo", "%d %d", 940, 240);
+        inv(view, "_root.lineTo", "%d %d", 940, 480);
+        inv(view, "_root.lineTo", "%d %d", 340, 480);
+        inv(view, "_root.lineTo", "%d %d", 340, 240);
+        inv(view, "_root.endFill", "");
+        // gold border
+        inv(view, "_root.lineStyle", "%d %d %d", 3, 0xE0B34A, 100);
+        inv(view, "_root.moveTo", "%d %d", 340, 240);
+        inv(view, "_root.lineTo", "%d %d", 940, 240);
+        inv(view, "_root.lineTo", "%d %d", 940, 480);
+        inv(view, "_root.lineTo", "%d %d", 340, 480);
+        inv(view, "_root.lineTo", "%d %d", 340, 240);
+        HAG_INFO("DrawWelcome: drew golden panel via GFx");
+    }
+
+    unsigned int HagProcessMessage(void* self, void* msg) {
         const unsigned int type = *reinterpret_cast<unsigned int*>(reinterpret_cast<char*>(msg) + 8);
         HAG_INFO("HagUIMenu::ProcessMessage type={}", type);
-        // TODO(next): on show, draw the golden/black welcome panel via GFxValue.
-        return 0;  // kIgnore for now; refine once we observe live behaviour
+        if (type == offsets::kMsg_Show) {
+            void* view = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
+            DrawWelcome(view);
+        }
+        return 0;
     }
 }  // namespace
 
