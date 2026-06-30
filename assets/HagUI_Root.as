@@ -66,6 +66,39 @@ function mkText(parent, name, depth, x, y, w, h, html)
    return t;
 }
 
+// ---- reusable gold button: gradient bg + border, brightens on hover, fires a GameDelegate
+// callback on its own click (direct hit-test, not the backdrop rectangle). ----
+function paintButton(b, hover)
+{
+   b.clear();
+   var a1 = 18;
+   var a2 = 6;
+   var ba = 42;
+   if (hover) { a1 = 34; a2 = 14; ba = 78; }
+   b.lineStyle(1, 0xE0B34A, ba, true, "none", "round", "round");
+   b.beginGradientFill("linear", [0xE0B34A, 0xE0B34A], [a1, a2], [0, 255], _root.boxM(b._bx, b._by, b._bw, b._bh, Math.PI / 2));
+   _root.rrPath(b, b._bx, b._by, b._bw, b._bh, 7);
+   b.endFill();
+}
+function makeButton(parent, name, depth, bx, by, bw, bh, html, cb)
+{
+   // hover glow sits BEHIND as its own clip so it never enlarges the button's hit area
+   var g = parent.createEmptyMovieClip(name + "_glow", depth);
+   g.beginFill(0xE0B34A, 16);
+   _root.rrPath(g, bx - 5, by - 5, bw + 10, bh + 10, 11);
+   g.endFill();
+   g._visible = false;
+   var b = parent.createEmptyMovieClip(name, depth + 1);
+   b._bx = bx; b._by = by; b._bw = bw; b._bh = bh; b._cb = cb; b._glow = g;
+   _root.paintButton(b, false);
+   _root.mkText(b, "lbl", 1, bx, by + Math.round((bh - 18) / 2), bw, 24, html);
+   b.onRollOver = function() { _root.paintButton(this, true); this._glow._visible = true; };
+   b.onRollOut = function() { _root.paintButton(this, false); this._glow._visible = false; };
+   b.onReleaseOutside = function() { _root.paintButton(this, false); this._glow._visible = false; };
+   b.onRelease = function() { gfx.io.GameDelegate.call(this._cb, []); };
+   return b;
+}
+
 function buildWelcome()
 {
    var W = Stage.width;
@@ -138,16 +171,15 @@ function buildWelcome()
    mkText(card, "tag", 23, px, cy + 198, tw, 70,
       "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &#8212;<br>configuration, tools, and more, gathered in one place.</font>");
 
-   // hint pill: ESC / click to close
-   var pw = 232;
-   var ph = 32;
-   var plx = px;
-   var ply = cy + ch - 76;
-   var pill = card.createEmptyMovieClip("pill", 30);
-   pill.lineStyle(1, 0xE0B34A, 34, true, "none", "round", "round");
-   pill.beginFill(0xE0B34A, 12); rrPath(pill, plx, ply, pw, ph, ph / 2); pill.endFill();
-   mkText(pill, "pt", 1, plx, ply + 7, pw, 22,
-      "<p align='center'><font face='$EverywhereBoldFont' size='13' color='#E0B34A'>ESC&nbsp;&nbsp;&#183;&nbsp;&nbsp;CLICK&nbsp;TO&nbsp;CLOSE</font></p>");
+   // real CLOSE button (hover-highlights, closes on its own click) + a quiet ESC hint
+   var btnW = 152;
+   var btnH = 40;
+   var btnX = px;
+   var btnY = cy + ch - 86;
+   makeButton(card, "closeBtn", 28, btnX, btnY, btnW, btnH,
+      "<p align='center'><font face='$EverywhereBoldFont' size='15' color='#E0B34A'>CLOSE</font></p>", "CloseHagUI");
+   mkText(card, "hint", 31, btnX + btnW + 18, btnY + 11, 230, 22,
+      "<font face='$EverywhereFont' size='14' color='#6B6456'>or press&nbsp;&nbsp;ESC</font>");
 
    // footer mark (bottom-right inside the card)
    mkText(card, "foot", 24, cx + cw - 230, cy + ch - 40, 200, 20,
