@@ -1,0 +1,138 @@
+# HagUI — Skyrim SE UI reverse-engineering & hook plan
+
+Target runtime: **SkyrimSE.exe v1.6.1170** (AE). Approach: **manual** — addresses from Ghidra,
+hooks via MinHook, UI built with the **game's own Scaleform GFx** system (no Address Library,
+no CommonLibSSE, no external overlay). Image base in the PE is `0x140000000`; a Ghidra file
+address `0x14xxxxxxx` maps to runtime as `GetModuleHandle(NULL) + (fileAddr - 0x140000000)`.
+
+---
+
+## 1. How Skyrim renders its UI
+
+Skyrim's UI is **Autodesk Scaleform GFx** — Flash (ActionScript 2) movies driven by the engine:
+
+```
+  .swf assets  (Data/Interface/*.swf)        <- the visual layer (Flash)
+        |  loaded into
+  GFxMovieView / GFxMovieDef                  <- one running movie per menu
+        |  owned by
+  IMenu  subclass (InventoryMenu, ...)        <- native C++ wrapper per menu
+        |  registered in / driven by
+  UI (a.k.a. MenuManager) singleton           <- name -> menu registry + render/update
+        |  opened & closed via
+  UIMessageQueue  (BSUIMessageData)           <- "show MapMenu", "hide MapMenu", ...
+        |  movies loaded through
+  BSScaleformManager / BSScaleformMovieLoader <- LoadMovie / LoadMovieEx
+        |  native <-> ActionScript bridge
+  GFxValue / GFxFunctionHandler::Invoke       <- call AS from C++, register C++ callbacks
+```
+
+Each frame the engine ticks the `UI` singleton, which updates/renders every **open** menu's
+`GFxMovieView`. So to put our own UI "inside" Skyrim we register a menu, give it a movie, and
+either load a custom `.swf` or build the display list at runtime through GFx calls.
+
+## 2. Native objects we need (fields/vtable slots to confirm in Ghidra)
+
+| Object | Why we need it | What to extract |
+|--------|----------------|-----------------|
+| `UI` / `MenuManager` singleton | the menu registry + per-frame driver | singleton accessor address; `menuMap` (BSTHashMap name→entry); `IsMenuOpen` |
+| `UI::Register(name, creator)` | add our menu so the engine knows "HagUIMenu" | function address + ABI (BSFixedString, fn ptr) |
+| `IMenu` vtable | our menu subclass must match the engine's vtable | vtable layout: `Ctor`, `Dtor`, `ProcessMessage`, `AdvanceMovie`, `Render`, `RefreshPlatform`... |
+| `MENU_FLAGS` | behaviour: pause game, cursor, modal, depth | flag bit meanings |
+| `UIMessageQueue::AddMessage` | open/close our menu by name | function address + `UI_MESSAGE_TYPE` enum (kShow/kHide) |
+| `BSScaleformManager::LoadMovieEx` | load our `.swf` into the menu's `GFxMovieView` | function address + ABI |
+| `GFxValue::Invoke` / `GFxFunctionHandler` | call AS + receive AS→C++ callbacks (button clicks) | function addresses + GFxValue layout |
+| `GFxMovieView` | the movie root we draw into / invoke on | vtable slots `Invoke`, `CreateObject`, `SetVariable` |
+
+The `DumpUI.java` output (`ghidra/ui_dump.txt`) gives us:
+- every UI string and the functions referencing it,
+- the **menu-registrar function** (the one function that references *all* the `*Menu*` name
+  strings — that's where `UI::Register` is called once per menu; the cleanest ABI sample),
+- recovered RTTI class names (`BSScaleformManager`, `GFxMovieView`, `IMenu`, ...),
+- symbols for `LoadMovie*`, `Register`, `GFxValue`, `Invoke`, `UIMessage*`.
+
+## 3. Menu lifecycle (what we replicate)
+
+1. **Register** (once, on plugin load): `UI::Register("HagUIMenu", HagUIMenu::Create)`.
+2. **Open**: push a show message — `UIMessageQueue::AddMessage("HagUIMenu", kShow)`.
+3. **Create**: engine calls our `Create()` → returns a `HagUIMenu : IMenu`; its ctor calls
+   `BSScaleformManager::LoadMovieEx(this, view, "HagUI", ...)` to bind our movie.
+4. **Drive**: engine ticks `AdvanceMovie` + `Render`; AS button clicks arrive in our
+   `GFxFunctionHandler` callbacks; we react in C++.
+5. **Close**: `AddMessage("HagUIMenu", kHide)` → engine destroys the menu.
+
+## 4. How SkyUI does the "button in Options" (the part we mirror)
+
+SkyUI ships replacement `.swf`s and an SKSE plugin. Its **Mod Configuration Menu** is a custom
+menu; the **"MOD CONFIGURATION" button** is injected into the **Journal/System (pause) menu** by
+SkyUI's modified `journalmenu`/`configmanager` SWF talking to its plugin. Replicating faithfully
+means either (a) editing/our-own Journal SWF, or (b) hooking the Journal menu's native option
+handling. For the **test-run**, HagUI opens via a hotkey first (cheap, proves the whole pipeline),
+then we add the in-Options button as step 2 once the menu pipeline is confirmed working.
+
+## 5. HagUI build phases
+
+- **P0 — Loader**: bare SKSE plugin (`SKSEPlugin_Version` data) → DLL loads, logs, gets module base.
+- **P1 — Bindings**: from `ui_dump.txt`, wrap the addresses above as typed function pointers
+  (`base + RVA`). Verify each by logging a known call (e.g. `IsMenuOpen("MapMenu")`).
+- **P2 — Register + show**: register `HagUIMenu`, open via hotkey. Even an empty movie proves it.
+- **P3 — Render golden/black UI**: draw the panel (two options in §6).
+- **P4 — Forwarder hook**: MinHook a game UI function (e.g. the menu-process or journal-options
+  builder), do our thing, then **call the original** — demonstrates hook + forwarder.
+- **P5 — Options button**: inject the "HagUI" entry into the in-game options.
+
+## 6. Rendering the golden/black UI — two paths
+
+- **A. Custom `.swf`** (most SkyUI-faithful): author a Flash movie themed golden/black, load via
+  `LoadMovieEx`. Pixel-perfect, but needs an SWF toolchain (JPEXS/FFDec or an AS2 compiler).
+- **B. Native GFx drawing** (no SWF authoring): get a writable movie root and build the display
+  list from C++ via `GFxValue` — `CreateEmptyMovieClip`, `Graphics.beginFill/lineStyle/drawRect`,
+  `createTextField` — to paint golden/black panels, buttons, text. "Replicate UI functions to
+  build our own UI" literally.
+
+**Chosen for the test-run: B**, falling back to a minimal stub `.swf` only if a writable root
+can't be obtained without one. Decision finalised after the dump confirms `GFxValue::Invoke`/
+movie-root access.
+
+## 7. Address table — fill from `ghidra/ui_dump.txt` (RVAs off image base 0x140000000)
+
+| Symbol | RVA | Notes |
+|--------|-----|-------|
+| `UI::GetSingleton` / singleton ptr | `TBD` | |
+| `UI::Register` | `TBD` | menu name + creator |
+| `UI::IsMenuOpen` | `TBD` | verification call |
+| `UIMessageQueue::AddMessage` | `TBD` | open/close |
+| `BSScaleformManager::LoadMovieEx` | `TBD` | bind movie |
+| `GFxValue::Invoke` | `TBD` | AS bridge |
+| menu-registrar fn (ABI sample) | `TBD` | top hit in dump |
+| `IMenu` vtable | `TBD` | slot order |
+
+## 8. Theme — black + gold (from Manga List / LoL Game Helper / GrepolisMod)
+
+Single gold accent on near-black layered panels; uppercase letter-spaced labels; gold-tinted
+borders; gradient + soft-glow active states. Scaleform uses `0xRRGGBB` ints + an alpha 0-100.
+
+| Token | Hex | Use |
+|-------|-----|-----|
+| bg-0 | `#0A0A0C` | deepest background |
+| bg-1 | `#121013` | window background |
+| panel | `#1A1712` (~92% a) | card / panel fill |
+| panel-2 | `#231E16` | nested panel / input |
+| panel-hover | `#2E271B` | hover fill |
+| border | `#E0B34A` @ 14% | hairline borders |
+| border-strong | `#E0B34A` @ 42% | active / focused borders |
+| **accent (GOLD)** | `#E0B34A` | primary accent, titles, active |
+| accent-dim | `#B8862F` | gradient bottom, pressed |
+| accent-glow | `#E0B34A` @ 50% | glows / focus ring |
+| text | `#ECE6DA` | body text |
+| text-dim | `#9C9486` | secondary text / labels |
+| text-faint | `#6B6456` | captions |
+| win / loss | `#3FB27F` / `#E0556B` | success / error |
+
+Buttons: gradient `accent@18% → accent@6%`, 1px `border-strong`, gold text, uppercase +1px
+letter-spacing, glow on hover. Radius 10px (6px small).
+
+## 9. Build / deploy
+
+- CMake + vcpkg (`minhook`, `spdlog`), MSVC x64 → `HagUI.dll`.
+- `deploy.ps1` → `…/Skyrim Special Edition/Data/SKSE/Plugins/HagUI.dll` (+ `Data/Interface/HagUI.swf` if path A).
