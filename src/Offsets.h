@@ -89,8 +89,39 @@ namespace menu_layout {
     inline constexpr std::uintptr_t kFlags     = 0x20;
 }
 
-// ---- Still TODO (next RE pass) ----
-inline constexpr std::uintptr_t kUIMessageQueue_AddMsg = 0x0;  // open/close menu by name (kShow/kHide)
-// + the Options/System-menu hook point to inject the "HagUI" entry (trampoline + call original)
+// IMenu vtable (9 slots; template BarterMenu 0x18F0CE0). For HagUIMenu: override the
+// dtor + ProcessMessage, reuse the generic UI-base impls for the rest.
+namespace imenu_vtable {
+    inline constexpr int kDtor           = 0;  // +0x00  ~Menu (frees via allocator +0x60)
+    inline constexpr int kRegisterFuncs  = 1;  // +0x08  registers the menu's AS callbacks
+    inline constexpr int kBaseA          = 2;  // +0x10  shared base
+    inline constexpr int kBaseB          = 3;  // +0x18  shared base
+    inline constexpr int kProcessMessage = 4;  // +0x20  handle UIMessage (type @msg+0x8; show==1)
+    inline constexpr int kBaseC          = 5;  // +0x28  generic base
+    inline constexpr int kAdvanceMovie   = 6;  // +0x30  per-frame tick
+    inline constexpr int kBaseD          = 7;  // +0x38  generic base
+    inline constexpr int kBaseE          = 8;  // +0x40  generic base
+}
+// Reusable generic IMenu base implementations (point HagUIMenu's vtable slots here):
+inline constexpr std::uintptr_t kIMenuBase_2 = 0x573990;
+inline constexpr std::uintptr_t kIMenuBase_3 = 0x5739A0;
+inline constexpr std::uintptr_t kIMenuBase_5 = 0xFAEDB0;
+inline constexpr std::uintptr_t kIMenuBase_7 = 0xFAEE60;
+inline constexpr std::uintptr_t kIMenuBase_8 = 0xFAEE70;
+
+// ---- Target menus for the "HagUI" entry injection ----
+// Main Menu (Global config — editable outside a save); movie "StartMenu":
+inline constexpr std::uintptr_t kMainMenu_Create   = 0x947410;
+inline constexpr std::uintptr_t kMainMenu_vtable   = 0x18FC980;
+inline constexpr std::uintptr_t kMainMenu_instance = 0x31AEEE8;   // *(MainMenu**)
+// Journal Menu = the in-game Escape/System/pause menu (Global + PerSave); movie "Quest_Journal":
+inline constexpr std::uintptr_t kJournalMenu_Create = 0x995CD0;
+inline constexpr std::uintptr_t kJournalMenu_vtable = 0x190AF38;
+// Full menu name -> creator map: ghidra/ui_regmap.txt (36 menus).
+
+// ---- Still TODO ----
+inline constexpr std::uintptr_t kUIMessageQueue_AddMsg = 0x0;  // open/close menu (kShow/kHide)
+// + decode the 9 IMenu vtable slots (ProcessMessage etc.) to build HagUIMenu's vtable
+// + in-menu button-inject mechanism (intersects the HagUI.swf / ActionScript work)
 
 }  // namespace hag::offsets
