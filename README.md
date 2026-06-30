@@ -14,7 +14,11 @@ cmake --preset vs2022
 cmake --build build --config Release
 ```
 
-Output: `build/Release/HagUI.dll`. Deploy into the live game with `./deploy.ps1`.
+Output: `build/Release/HagUI.dll`.
+
+**Build + deploy as a Mod Organizer 2 mod:** `./build.ps1` — builds, then stages into
+`…\ModOrganizer\Skyrim Special Edition\mods\HagUI\` (`SKSE\Plugins\HagUI.dll`, `Interface\HagUI.swf`).
+`./deploy.ps1` deploys without rebuilding.
 
 ## Roadmap
 
