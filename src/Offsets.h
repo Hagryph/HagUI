@@ -128,7 +128,17 @@ inline constexpr std::uintptr_t kBSFixedString_dtor    = 0xCEC740;   // (BSFixed
 inline constexpr std::uint32_t  kMsg_Show              = 1;          // UI_MESSAGE_TYPE::kShow
 inline constexpr std::uint32_t  kMsg_Hide              = 3;          // kHide (to confirm)
 
+// ---- GFx scripting (to draw content into the menu's movie) ----
+inline constexpr std::uintptr_t kGFxMovie_Invoke = 0xFBFB10;   // Invoke(view, "_root.path", result, args); arg/GFxValue ABI WIP
+inline constexpr std::uintptr_t kGFx_InvokeInner = 0x1021AA0;  // underlying invoke
+inline constexpr std::uintptr_t kGFx_MakeString  = 0xFBB150;   // make a managed GFx string
+
 // ---- Still TODO ----
+// + draw welcome content via GFx (GFxValue layout + Invoke args), OR authored shapes in HagUI.swf
 // + in-menu button-inject mechanism into the Main/Journal menus (intersects HagUI.swf / ActionScript)
+//
+// NOTE: full pipeline CONFIRMED in-game 2026-06-30: register -> AddMessage(kShow) -> Create ->
+// LoadMovie('HagUI')=true -> our 9-slot vtable ticks (ProcessMessage type=1) -> stable, no CTD.
+// Menu renders but is empty/transparent (no content drawn yet).
 
 }  // namespace hag::offsets
