@@ -11,6 +11,7 @@ public:
 
     static void  Register();   // UI::Register(registry, "HagUIMenu", &Create)
     static void* Create();     // engine creator -> returns a new IMenu*
+    static void  Open();       // UIMessageQueue::AddMessage("HagUIMenu", kShow)
 };
 
 }  // namespace hag::ui

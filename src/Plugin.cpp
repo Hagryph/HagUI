@@ -20,6 +20,9 @@ void OnSKSEMessage(skse::Message* msg) {
     if (msg && msg->type == skse::kMessage_DataLoaded) {
         HAG_INFO("kDataLoaded -> registering HagUIMenu");
         ui::HagMenu::Register();
+        // TEMPORARY test trigger: auto-show on the main menu so we can see it render.
+        // To be replaced by the in-Options-menu injection (no auto-open in the final build).
+        ui::HagMenu::Open();
     }
 }
 }  // namespace

@@ -31,7 +31,7 @@ namespace {
             vt[3] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_3));
             vt[4] = reinterpret_cast<void*>(&HagProcessMessage);            // ProcessMessage
             vt[5] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_5));
-            vt[6] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_5)); // AdvanceMovie (TODO: confirm)
+            vt[6] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_6)); // generic tick
             vt[7] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_7));
             vt[8] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_8));
         }
@@ -77,6 +77,21 @@ void* HagMenu::Create() {
     *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + offsets::menu_layout::kFlags) = 4;
     HAG_INFO("HagUIMenu::Create - LoadMovie('HagUI')={} menu={}", ok, menu);
     return menu;
+}
+
+void HagMenu::Open() {
+    void* queue = *reinterpret_cast<void**>(offsets::FromRVA(offsets::kUIMessageQueue_ptr));
+    if (!queue) { HAG_WARN("HagUIMenu::Open - no UIMessageQueue"); return; }
+
+    struct BSFixedString { const char* data = nullptr; } name;  // 8-byte interned-string handle
+    reinterpret_cast<void (*)(void*, const char*)>(offsets::FromRVA(offsets::kBSFixedString_ctor))(&name, kName);
+
+    using AddMsgFn = void (*)(void* queue, void* name, std::uint32_t type, void* data);
+    reinterpret_cast<AddMsgFn>(offsets::FromRVA(offsets::kUIMessageQueue_AddMsg))(
+        queue, &name, offsets::kMsg_Show, nullptr);
+
+    reinterpret_cast<void (*)(void*)>(offsets::FromRVA(offsets::kBSFixedString_dtor))(&name);
+    HAG_INFO("HagUIMenu::Open - posted kShow");
 }
 
 void HagMenu::Register() {

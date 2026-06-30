@@ -106,6 +106,7 @@ namespace imenu_vtable {
 inline constexpr std::uintptr_t kIMenuBase_2 = 0x573990;
 inline constexpr std::uintptr_t kIMenuBase_3 = 0x5739A0;
 inline constexpr std::uintptr_t kIMenuBase_5 = 0xFAEDB0;
+inline constexpr std::uintptr_t kIMenuBase_6 = 0x5739C0;  // generic tick (MainMenu reuses it)
 inline constexpr std::uintptr_t kIMenuBase_7 = 0xFAEE60;
 inline constexpr std::uintptr_t kIMenuBase_8 = 0xFAEE70;
 
@@ -119,9 +120,15 @@ inline constexpr std::uintptr_t kJournalMenu_Create = 0x995CD0;
 inline constexpr std::uintptr_t kJournalMenu_vtable = 0x190AF38;
 // Full menu name -> creator map: ghidra/ui_regmap.txt (36 menus).
 
+// ---- Open / close a menu (confirmed via OpenCreditsMenu handler 0x140942820) ----
+// AddMessage(queue=*(kUIMessageQueue_ptr), BSFixedString* name, UI_MESSAGE_TYPE type, void* data)
+inline constexpr std::uintptr_t kUIMessageQueue_AddMsg = 0x1AF260;
+inline constexpr std::uintptr_t kUIMessageQueue_ptr    = 0x20F8950;  // *(UIMessageQueue**)
+inline constexpr std::uintptr_t kBSFixedString_dtor    = 0xCEC740;   // (BSFixedString*)
+inline constexpr std::uint32_t  kMsg_Show              = 1;          // UI_MESSAGE_TYPE::kShow
+inline constexpr std::uint32_t  kMsg_Hide              = 3;          // kHide (to confirm)
+
 // ---- Still TODO ----
-inline constexpr std::uintptr_t kUIMessageQueue_AddMsg = 0x0;  // open/close menu (kShow/kHide)
-// + decode the 9 IMenu vtable slots (ProcessMessage etc.) to build HagUIMenu's vtable
-// + in-menu button-inject mechanism (intersects the HagUI.swf / ActionScript work)
+// + in-menu button-inject mechanism into the Main/Journal menus (intersects HagUI.swf / ActionScript)
 
 }  // namespace hag::offsets
