@@ -99,6 +99,77 @@ function makeButton(parent, name, depth, bx, by, bw, bh, html, cb)
    return b;
 }
 
+// ---- navigation tabs. _root.HAG_TABS holds the labels (addTab appends one); the active tab
+// is gold + underlined, inactive tabs are dim and brighten on hover; showPage builds each page.
+// New tabs: addTab("LABEL") + a branch in showPage() for its content builder. ----
+function tabHtml(label, act)
+{
+   var col = "#9C9486";
+   if (act) { col = "#E0B34A"; }
+   return "<font face='$EverywhereBoldFont' size='15' color='" + col + "'>" + label + "</font>";
+}
+function buildNav(card, nx, ny, nw)
+{
+   var nav = card.createEmptyMovieClip("nav", 18);
+   nav.lineStyle(1, 0xE0B34A, 16);                         // baseline hairline under the row
+   nav.moveTo(nx, ny + 34); nav.lineTo(nx + nw, ny + 34);
+   var x = nx;
+   var i = 0;
+   while (i < _root.HAG_TABS.length)
+   {
+      var act = (i == _root.hagActive);
+      var t = nav.createEmptyMovieClip("t" + i, 10 + i);
+      t._idx = i;
+      var lbl = _root.mkText(t, "lbl", 2, x, ny + 6, 280, 24, _root.tabHtml(_root.HAG_TABS[i], act));
+      var tw = lbl.textWidth;
+      if (!(tw > 10)) { tw = _root.HAG_TABS[i].length * 11 + 4; }
+      t.beginFill(0xFFFFFF, 0); _root.rect(t, x - 7, ny, tw + 14, 35); t.endFill();   // invisible hit area
+      if (act) { t.lineStyle(2, 0xE0B34A, 100); t.moveTo(x, ny + 34); t.lineTo(x + tw, ny + 34); }
+      t.onRelease = function() { _root.selectTab(this._idx); };
+      t.onRollOver = function() { _root.tabHover(this._idx, true); };
+      t.onRollOut = function() { _root.tabHover(this._idx, false); };
+      x = x + tw + 30;
+      i = i + 1;
+   }
+}
+function tabHover(idx, over)
+{
+   if (idx == _root.hagActive) { return; }
+   var col = "#9C9486";
+   if (over) { col = "#ECE6DA"; }
+   _root.HagWelcome.card.nav["t" + idx].lbl.htmlText =
+      "<font face='$EverywhereBoldFont' size='15' color='" + col + "'>" + _root.HAG_TABS[idx] + "</font>";
+}
+function addTab(label) { _root.HAG_TABS.push(label); }
+function selectTab(idx)
+{
+   if (idx == _root.hagActive) { return; }
+   _root.hagActive = idx;
+   var card = _root.HagWelcome.card;
+   card.nav.removeMovieClip();
+   _root.buildNav(card, card._nx, card._ny, card._nw);
+   _root.showPage(idx);
+}
+function showPage(idx)
+{
+   var card = _root.HagWelcome.card;
+   card.content.removeMovieClip();
+   var c = card.createEmptyMovieClip("content", 22);
+   if (idx == 0) { _root.buildWelcomePage(c, card._cx, card._cyTop, card._cw2); }
+}
+function buildWelcomePage(c, x, y, w)
+{
+   _root.mkText(c, "lbl", 1, x, y, w, 22,
+      "<font face='$EverywhereBoldFont' size='13' color='#6B6456'>W&nbsp;E&nbsp;L&nbsp;C&nbsp;O&nbsp;M&nbsp;E&nbsp;&nbsp;T&nbsp;O</font>");
+   _root.mkText(c, "mark", 2, x - 2, y + 14, w, 92,
+      "<font face='$EverywhereBoldFont' size='64' color='#ECE6DA'>Hag<font color='#E0B34A'>UI</font></font>");
+   var dv = c.createEmptyMovieClip("dv", 3);
+   dv.beginGradientFill("linear", [0xE0B34A, 0xE0B34A], [60, 0], [0, 255], _root.boxM(x, 0, 250, 2, 0));
+   _root.rect(dv, x, y + 112, 250, 2); dv.endFill();
+   _root.mkText(c, "tag", 4, x, y + 132, w, 70,
+      "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &#8212;<br>configuration, tools, and more, gathered in one place.</font>");
+}
+
 function buildWelcome()
 {
    var W = Stage.width;
@@ -118,16 +189,17 @@ function buildWelcome()
    rect(glow, 0, 0, W, H); glow.endFill();
 
    // ---- hero card ----
-   var cw = 768;
-   var ch = 404;
+   var cw = 820;
+   var ch = 462;
    var cx = Math.round((W - cw) / 2);
    var cy = Math.round((H - ch) / 2) - 6;
    // expose the panel rect (in _root coords) so the mouse handler can close only on outside clicks
    _root.hagX = cx; _root.hagY = cy; _root.hagW = cw; _root.hagH = ch;
    var card = s.createEmptyMovieClip("card", 10);
 
-   // soft drop shadow (offset, faint)
-   card.beginFill(0x000000, 34); rrPath(card, cx + 2, cy + 14, cw, ch, 14); card.endFill();
+   // thin, soft drop shadow (two light offset layers; the old single 14px offset read as a heavy band)
+   card.beginFill(0x000000, 20); rrPath(card, cx, cy + 3, cw, ch, 14); card.endFill();
+   card.beginFill(0x000000, 11); rrPath(card, cx, cy + 6, cw, ch, 14); card.endFill();
    // panel fill + gold hairline border in one pass
    card.lineStyle(1, 0xE0B34A, 42, true, "none", "round", "round");
    card.beginFill(0x1A1712, 96); rrPath(card, cx, cy, cw, ch, 14); card.endFill();
@@ -150,26 +222,16 @@ function buildWelcome()
    fl.moveTo(cx + 30, cy + 22); fl.lineTo(cx + 56, cy + 22);
    fl.moveTo(cx + cw - 30, cy + ch - 22); fl.lineTo(cx + cw - 56, cy + ch - 22);
 
-   var px = cx + 60;          // content left
-   var tw = cw - 60 - 56;     // content width
+   var px = cx + 60;
+   var cwid = cw - 60 - 48;
 
-   // label
-   mkText(card, "lbl", 20, px, cy + 50, tw, 22,
-      "<font face='$EverywhereBoldFont' size='13' color='#6B6456'>W&nbsp;E&nbsp;L&nbsp;C&nbsp;O&nbsp;M&nbsp;E&nbsp;&nbsp;T&nbsp;O</font>");
+   // ---- navigation tab strip (registerable; _root.HAG_TABS holds the labels) ----
+   card._nx = px; card._ny = cy + 28; card._nw = cwid;
+   buildNav(card, px, cy + 28, cwid);
 
-   // wordmark: Hag (light) + UI (gold)
-   mkText(card, "mark", 21, px - 2, cy + 66, tw, 96,
-      "<font face='$EverywhereBoldFont' size='74' color='#ECE6DA'>Hag<font color='#E0B34A'>UI</font></font>");
-
-   // gold divider (fades out to the right)
-   var dv = card.createEmptyMovieClip("dv", 22);
-   dv.beginGradientFill("linear", [0xE0B34A, 0xE0B34A], [60, 0], [0, 255],
-      boxM(px, 0, 250, 2, 0));
-   rect(dv, px, cy + 178, 250, 2); dv.endFill();
-
-   // tagline
-   mkText(card, "tag", 23, px, cy + 198, tw, 70,
-      "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &#8212;<br>configuration, tools, and more, gathered in one place.</font>");
+   // ---- content area: the active tab's page (rebuilt by showPage on tab change) ----
+   card._cx = px; card._cyTop = cy + 86; card._cw2 = cwid;
+   showPage(_root.hagActive);
 
    // real CLOSE button (hover-highlights, closes on its own click) + a quiet ESC hint
    var btnW = 152;
@@ -192,5 +254,8 @@ Shared.GlobalFunc.MaintainTextFormat();
 // Hide the vanilla Credits chrome; Menu_mc stays (carries handleInput + focus) but renders nothing.
 BackMouseButton._visible = false;
 BackGamepadButton._visible = false;
+// tab registry (for now just Welcome; addTab("LABEL") + a showPage() branch adds more)
+_root.HAG_TABS = ["WELCOME"];
+_root.hagActive = 0;
 buildWelcome();
 stop();
