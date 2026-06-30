@@ -91,7 +91,9 @@ function makeButton(parent, name, depth, bx, by, bw, bh, html, cb)
    var b = parent.createEmptyMovieClip(name, depth + 1);
    b._bx = bx; b._by = by; b._bw = bw; b._bh = bh; b._cb = cb; b._glow = g;
    _root.paintButton(b, false);
-   _root.mkText(b, "lbl", 1, bx, by + Math.round((bh - 18) / 2), bw, 24, html);
+   var lbl = _root.mkText(b, "lbl", 1, bx, by, bw, 30, html);
+   // vertical-center on the REAL text height (minus Flash's 2px top gutter) instead of a guess
+   lbl._y = by + Math.round((bh - lbl.textHeight) / 2) - 2;
    b.onRollOver = function() { _root.paintButton(this, true); this._glow._visible = true; };
    b.onRollOut = function() { _root.paintButton(this, false); this._glow._visible = false; };
    b.onReleaseOutside = function() { _root.paintButton(this, false); this._glow._visible = false; };
