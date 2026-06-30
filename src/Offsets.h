@@ -81,6 +81,7 @@ inline constexpr std::uintptr_t kMenuAllocator_ptr       = 0x3292490;  // memory
 inline constexpr std::uintptr_t kBSScaleformManager_ptr  = 0x35F11C8;  // *(BSScaleformManager**)
 inline constexpr std::uintptr_t kIMenu_vtable_BarterMenu = 0x18F0CE0;  // 9-slot IMenu vtable template
 inline constexpr std::uintptr_t kBarterMenu_Create       = 0x8EF2B0;   // example creator
+inline constexpr std::uintptr_t kIMenu_baseCtor          = 0xFAECC0;   // IMenu/BSInputEventUser base ctor (call FIRST in Create)
 
 // Menu object layout (from the creator): +0x00 vtable, +0x10 GFxMovieView*, +0x20 flags(u32)
 namespace menu_layout {

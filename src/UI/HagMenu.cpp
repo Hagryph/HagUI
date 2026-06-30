@@ -132,8 +132,10 @@ void* HagMenu::Create() {
     void* menu = reinterpret_cast<AllocFn>(avt[0x50 / 8])(a, 0x40, 0);
     if (!menu) { HAG_ERR("HagUIMenu::Create - alloc failed"); return nullptr; }
     std::memset(menu, 0, 0x40);
-    *reinterpret_cast<void***>(menu) = Vtable();                                   // +0x00 IMenu vtable
-    *reinterpret_cast<void***>(reinterpret_cast<char*>(menu) + 0x30) = InputVtable();  // +0x30 BSInputEventUser
+    // IMenu/BSInputEventUser base ctor FIRST (sets up + registers the input sink) - every real creator does this.
+    reinterpret_cast<void (*)(void*)>(offsets::FromRVA(offsets::kIMenu_baseCtor))(menu);
+    *reinterpret_cast<void***>(menu) = Vtable();                                   // override +0x00 IMenu vtable
+    *reinterpret_cast<void***>(reinterpret_cast<char*>(menu) + 0x30) = InputVtable();  // override +0x30 BSInputEventUser
     *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + 0x38) = 1;       // (Credits sets this)
 
     void* sfMgr = *reinterpret_cast<void**>(offsets::FromRVA(offsets::kBSScaleformManager_ptr));
