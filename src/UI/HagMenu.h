@@ -12,7 +12,8 @@ public:
     static void  Register();        // UI::Register(registry, "HagUIMenu", &Create)
     static void* Create();          // engine creator -> returns a new IMenu*
     static void  Open();            // UIMessageQueue::AddMessage("HagUIMenu", kShow)
-    static void  InstallTrigger();  // (debug) trampoline-hook the Main Menu Credits handler to Open()
+    static void  Close();           // UIMessageQueue::AddMessage("HagUIMenu", kHide)
+    static void  InstallTrigger();  // trampoline-hook the Main Menu to add the "HagUI" entry
 };
 
 }  // namespace hag::ui

@@ -106,6 +106,22 @@ namespace {
         HAG_INFO("Credits clicked -> opening HagUIMenu (debug trigger)");
         HagMenu::Open();  // (debug) not forwarding to original, so only HagUI shows
     }
+
+    // --- BSInputEventUser input handler (+0x30): official close on Cancel, mirroring Credits ---
+    void* HagInputDtor(void* self, unsigned int) { return self; }
+    void HagInputHandler(void* /*self*/, void* event) {
+        const int t = *reinterpret_cast<int*>(reinterpret_cast<char*>(event) + 0x30);
+        HAG_INFO("HagUIMenu input event type={}", t);
+        if (t == 2) HagMenu::Close();  // 2 == Cancel/back (same as Credits' handler)
+    }
+    void** InputVtable() {
+        static void* vt[2] = {};
+        if (!vt[0]) {
+            vt[0] = reinterpret_cast<void*>(&HagInputDtor);
+            vt[1] = reinterpret_cast<void*>(&HagInputHandler);
+        }
+        return vt;
+    }
 }  // namespace
 
 void* HagMenu::Create() {
@@ -116,7 +132,9 @@ void* HagMenu::Create() {
     void* menu = reinterpret_cast<AllocFn>(avt[0x50 / 8])(a, 0x40, 0);
     if (!menu) { HAG_ERR("HagUIMenu::Create - alloc failed"); return nullptr; }
     std::memset(menu, 0, 0x40);
-    *reinterpret_cast<void***>(menu) = Vtable();                                   // +0x00 vtable
+    *reinterpret_cast<void***>(menu) = Vtable();                                   // +0x00 IMenu vtable
+    *reinterpret_cast<void***>(reinterpret_cast<char*>(menu) + 0x30) = InputVtable();  // +0x30 BSInputEventUser
+    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + 0x38) = 1;       // (Credits sets this)
 
     void* sfMgr = *reinterpret_cast<void**>(offsets::FromRVA(offsets::kBSScaleformManager_ptr));
     auto  loadMovie = reinterpret_cast<LoadMovieFn>(offsets::FromRVA(offsets::kScaleform_LoadMovie));
@@ -143,6 +161,17 @@ void HagMenu::Open() {
 
     reinterpret_cast<void (*)(void*)>(offsets::FromRVA(offsets::kBSFixedString_dtor))(&name);
     HAG_INFO("HagUIMenu::Open - posted kShow");
+}
+
+void HagMenu::Close() {
+    void* queue = *reinterpret_cast<void**>(offsets::FromRVA(offsets::kUIMessageQueue_ptr));
+    if (!queue) return;
+    struct BSFixedString { const char* data = nullptr; } name;
+    reinterpret_cast<void (*)(void*, const char*)>(offsets::FromRVA(offsets::kBSFixedString_ctor))(&name, kName);
+    reinterpret_cast<void (*)(void*, void*, std::uint32_t, void*)>(offsets::FromRVA(offsets::kUIMessageQueue_AddMsg))(
+        queue, &name, offsets::kMsg_Hide, nullptr);
+    reinterpret_cast<void (*)(void*)>(offsets::FromRVA(offsets::kBSFixedString_dtor))(&name);
+    HAG_INFO("HagUIMenu::Close - posted kHide");
 }
 
 void HagMenu::Register() {
