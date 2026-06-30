@@ -12,6 +12,7 @@ add_library(HagUI SHARED
     src/Log.cpp
     src/Hooking.cpp
     src/UI/HagMenu.cpp
+    src/api/HagApi.cpp
 )
 
 target_include_directories(HagUI PRIVATE src)
