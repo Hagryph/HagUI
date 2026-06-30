@@ -111,6 +111,14 @@ inline constexpr std::uintptr_t kIMenuBase_6 = 0x5739C0;  // generic tick (MainM
 inline constexpr std::uintptr_t kIMenuBase_7 = 0xFAEE60;
 inline constexpr std::uintptr_t kIMenuBase_8 = 0xFAEE70;
 
+// Base IMenu ProcessMessage (real menus delegate unhandled messages here; e.g. BarterMenu's
+// ProcessMessage tail-calls it). On kUserEvent(6) with event data it FORWARDS the event to the
+// movie: movie->vtable[0x168](movie, data) = GFxMovieView::HandleEvent -> drives the CLIK
+// Key/Mouse listeners (InputDelegate) so the SWF's handleInput/onMouseDown actually fire.
+// Our ProcessMessage MUST delegate here or the menu's movie never receives keyboard/mouse input.
+inline constexpr std::uintptr_t kIMenuBase_ProcessMsg     = 0xFAED60;
+inline constexpr std::uintptr_t kGFxMovie_HandleEvent_slot = 0x168;  // movie vtable input-event slot
+
 // ---- Target menus for the "HagUI" entry injection ----
 // Main Menu (Global config — editable outside a save); movie "StartMenu":
 inline constexpr std::uintptr_t kMainMenu_Create   = 0x947410;

@@ -86,16 +86,20 @@ namespace {
         HAG_INFO("DrawWelcome: drew golden/black welcome panel");
     }
 
+    using ProcMsgFn = unsigned int (*)(void* self, void* msg);
     unsigned int HagProcessMessage(void* self, void* msg) {
         const unsigned int type = *reinterpret_cast<unsigned int*>(reinterpret_cast<char*>(msg) + 8);
         if (type == offsets::kMsg_Show) {
             HAG_INFO("HagUIMenu::ProcessMessage kShow -> draw");
             void* view = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
             DrawWelcome(view);
-        } else if (type != 6 && type != 7) {  // 6/7 fire every frame (input/update) - skip the spam
-            HAG_INFO("HagUIMenu::ProcessMessage type={}", type);
+            return 0;
         }
-        return 0;
+        // Delegate everything else to the base IMenu ProcessMessage. Critically, kUserEvent(6)
+        // input is forwarded there to the movie's HandleEvent (movie->vtable[0x168]) -> the SWF's
+        // CLIK Key/Mouse listeners fire -> handleInput/onMouseDown -> GameDelegate.call("CloseHagUI").
+        // Without this, the movie never sees keyboard/mouse and nothing can close the menu.
+        return reinterpret_cast<ProcMsgFn>(offsets::FromRVA(offsets::kIMenuBase_ProcessMsg))(self, msg);
     }
 
     // --- open-trigger: a real "HagUI" main-menu button (above Credits) ---
