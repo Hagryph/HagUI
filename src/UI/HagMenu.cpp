@@ -59,31 +59,42 @@ namespace {
     void DrawWelcome(void* view) {
         if (!view) { HAG_WARN("DrawWelcome: no view"); return; }
         const auto inv = reinterpret_cast<InvokeF>(offsets::FromRVA(offsets::kGFxMovie_Invoke));
-        // near-black panel, centered (stage is 1280x720)
+        const int x0 = 320, y0 = 200, x1 = 960, y1 = 520;  // panel (stage 1280x720)
         inv(view, "_root.clear", "");
-        inv(view, "_root.beginFill", "%d %d", 0x121013, 100);
-        inv(view, "_root.moveTo", "%d %d", 340, 240);
-        inv(view, "_root.lineTo", "%d %d", 940, 240);
-        inv(view, "_root.lineTo", "%d %d", 940, 480);
-        inv(view, "_root.lineTo", "%d %d", 340, 480);
-        inv(view, "_root.lineTo", "%d %d", 340, 240);
+        // near-black panel
+        inv(view, "_root.beginFill", "%d %d", 0x0A0A0C, 92);
+        inv(view, "_root.moveTo", "%d %d", x0, y0);
+        inv(view, "_root.lineTo", "%d %d", x1, y0);
+        inv(view, "_root.lineTo", "%d %d", x1, y1);
+        inv(view, "_root.lineTo", "%d %d", x0, y1);
+        inv(view, "_root.lineTo", "%d %d", x0, y0);
+        inv(view, "_root.endFill", "");
+        // gold header bar
+        inv(view, "_root.beginFill", "%d %d", 0xE0B34A, 100);
+        inv(view, "_root.moveTo", "%d %d", x0, y0);
+        inv(view, "_root.lineTo", "%d %d", x1, y0);
+        inv(view, "_root.lineTo", "%d %d", x1, y0 + 48);
+        inv(view, "_root.lineTo", "%d %d", x0, y0 + 48);
+        inv(view, "_root.lineTo", "%d %d", x0, y0);
         inv(view, "_root.endFill", "");
         // gold border
-        inv(view, "_root.lineStyle", "%d %d %d", 3, 0xE0B34A, 100);
-        inv(view, "_root.moveTo", "%d %d", 340, 240);
-        inv(view, "_root.lineTo", "%d %d", 940, 240);
-        inv(view, "_root.lineTo", "%d %d", 940, 480);
-        inv(view, "_root.lineTo", "%d %d", 340, 480);
-        inv(view, "_root.lineTo", "%d %d", 340, 240);
-        HAG_INFO("DrawWelcome: drew golden panel via GFx");
+        inv(view, "_root.lineStyle", "%d %d %d", 2, 0xE0B34A, 100);
+        inv(view, "_root.moveTo", "%d %d", x0, y0);
+        inv(view, "_root.lineTo", "%d %d", x1, y0);
+        inv(view, "_root.lineTo", "%d %d", x1, y1);
+        inv(view, "_root.lineTo", "%d %d", x0, y1);
+        inv(view, "_root.lineTo", "%d %d", x0, y0);
+        HAG_INFO("DrawWelcome: drew golden/black welcome panel");
     }
 
     unsigned int HagProcessMessage(void* self, void* msg) {
         const unsigned int type = *reinterpret_cast<unsigned int*>(reinterpret_cast<char*>(msg) + 8);
-        HAG_INFO("HagUIMenu::ProcessMessage type={}", type);
         if (type == offsets::kMsg_Show) {
+            HAG_INFO("HagUIMenu::ProcessMessage kShow -> draw");
             void* view = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
             DrawWelcome(view);
+        } else if (type != 6 && type != 7) {  // 6/7 fire every frame (input/update) - skip the spam
+            HAG_INFO("HagUIMenu::ProcessMessage type={}", type);
         }
         return 0;
     }
