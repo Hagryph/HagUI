@@ -102,8 +102,11 @@ void* HagMenu::Create() {
     auto  loadMovie = reinterpret_cast<LoadMovieFn>(offsets::FromRVA(offsets::kScaleform_LoadMovie));
     void* viewSlot = reinterpret_cast<char*>(menu) + offsets::menu_layout::kMovieView;  // +0x10
     const bool ok = loadMovie(sfMgr, menu, viewSlot, "HagUI", 1, 0);
-    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + offsets::menu_layout::kFlags) = 4;
-    HAG_INFO("HagUIMenu::Create - LoadMovie('HagUI')={} menu={}", ok, menu);
+    // Match the Credits Menu (renders over the Main Menu): depth 10 (> MainMenu's 9), flags 1.
+    *reinterpret_cast<std::uint8_t*>(reinterpret_cast<char*>(menu) + 0x18)  = 10;  // depth/priority
+    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + 0x1c) = 1;
+    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + offsets::menu_layout::kFlags) = 1;
+    HAG_INFO("HagUIMenu::Create - LoadMovie('HagUI')={} menu={} depth=10", ok, menu);
     return menu;
 }
 
