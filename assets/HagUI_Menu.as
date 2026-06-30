@@ -36,7 +36,13 @@ class CreditsMenu extends MovieClip
    }
    function onMouseDown()
    {
-      // Click-anywhere closes for now (matches Credits). Remove once HagUI has its own buttons.
-      gfx.io.GameDelegate.call("CloseHagUI", []);
+      // Close only when the click lands OUTSIDE the hero card (i.e. on the dark backdrop);
+      // clicks inside the panel are ignored so future buttons/controls can handle them.
+      var mx = _root._xmouse;
+      var my = _root._ymouse;
+      if (mx < _root.hagX || mx > _root.hagX + _root.hagW || my < _root.hagY || my > _root.hagY + _root.hagH)
+      {
+         gfx.io.GameDelegate.call("CloseHagUI", []);
+      }
    }
 }

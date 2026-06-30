@@ -89,6 +89,8 @@ function buildWelcome()
    var ch = 404;
    var cx = Math.round((W - cw) / 2);
    var cy = Math.round((H - ch) / 2) - 6;
+   // expose the panel rect (in _root coords) so the mouse handler can close only on outside clicks
+   _root.hagX = cx; _root.hagY = cy; _root.hagW = cw; _root.hagH = ch;
    var card = s.createEmptyMovieClip("card", 10);
 
    // soft drop shadow (offset, faint)
