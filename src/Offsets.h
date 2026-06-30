@@ -64,9 +64,33 @@ namespace uimenu_names {
     // ... full table in docs/UI-RE.md
 }
 
+// ---- Menu registration / creation ABI (confirmed) ----
+// Each menu has a tiny static registrar; BarterMenu's (0x1400B2A20) is:
+//   reg = UI_RegistryGet(&param);                       // 0x140FA32F0 -> caches global 0x1420F6A00
+//   UI_Register(reg, "BarterMenu", &BarterMenu_Create); // 0x140FA5480
+inline constexpr std::uintptr_t kUI_Register     = 0xFA5480;  // (registry, const char* name, IMenu*(*creator)())
+inline constexpr std::uintptr_t kUI_RegistryGet  = 0xFA32F0;  // menu-registry singleton getter
+inline constexpr std::uintptr_t kUI_Registry_ptr = 0x20F6A00; // cached registry singleton global
+
+// Menu creator body (template: BarterMenu_Create 0x1408EF2B0):
+//   m = (*(*alloc+0x50))(alloc, size, 0);   // alloc = kMenuAllocator_ptr
+//   *m = &IMenu_vtable; ...init...;
+//   LoadMovie(scaleformMgr, m, &m[0x10], "MovieName", scaleMode, 0);
+//   *(uint32*)(m+0x20) = flags;
+inline constexpr std::uintptr_t kMenuAllocator_ptr       = 0x3292490;  // memory mgr; Allocate at vtable +0x50
+inline constexpr std::uintptr_t kBSScaleformManager_ptr  = 0x35F11C8;  // *(BSScaleformManager**)
+inline constexpr std::uintptr_t kIMenu_vtable_BarterMenu = 0x18F0CE0;  // 9-slot IMenu vtable template
+inline constexpr std::uintptr_t kBarterMenu_Create       = 0x8EF2B0;   // example creator
+
+// Menu object layout (from the creator): +0x00 vtable, +0x10 GFxMovieView*, +0x20 flags(u32)
+namespace menu_layout {
+    inline constexpr std::uintptr_t kVtable    = 0x00;
+    inline constexpr std::uintptr_t kMovieView = 0x10;
+    inline constexpr std::uintptr_t kFlags     = 0x20;
+}
+
 // ---- Still TODO (next RE pass) ----
-inline constexpr std::uintptr_t kUI_Register             = 0x0;  // map name -> IMenu creator
-inline constexpr std::uintptr_t kUIMessageQueue_AddMsg   = 0x0;  // open/close a menu by name
-inline constexpr std::uintptr_t kIMenu_vtable_sample     = 0x0;  // e.g. a simple menu's vtable
+inline constexpr std::uintptr_t kUIMessageQueue_AddMsg = 0x0;  // open/close menu by name (kShow/kHide)
+// + the Options/System-menu hook point to inject the "HagUI" entry (trampoline + call original)
 
 }  // namespace hag::offsets

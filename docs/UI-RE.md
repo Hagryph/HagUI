@@ -111,9 +111,20 @@ movie-root access.
 | `BSScaleformFileOpener::Open` | `0xFB4490` | ✅ | BSResource/BSA-backed (the BSA chain) |
 | `GFxLoader::Read` | `0x10323F0` | ✅ | SWF/GFX parse |
 | `GFxValue::ObjectInterface` API | `0x10C3AB0` | ✅ | CreateEmptyMovieClip/AttachMovie/SetText/Invoke… |
-| `UI::Register` (name→creator) | `TBD` | ⏳ | next pass |
-| `UIMessageQueue::AddMessage` | `TBD` | ⏳ | open/close menu |
-| `IMenu` vtable (sample) | `TBD` | ⏳ | slot order |
+| `UI::Register(reg, name, creator)` | `0xFA5480` | ✅ | name is `const char*`; creator is `IMenu*(*)()` |
+| UI registry getter | `0xFA32F0` | ✅ | caches global `0x20F6A00` |
+| `BSScaleformManager*` global | `0x35F11C8` | ✅ | passed to LoadMovie |
+| menu allocator global | `0x3292490` | ✅ | `Allocate` at vtable `+0x50` |
+| `IMenu` vtable (BarterMenu) | `0x18F0CE0` | ✅ | **9 slots**; template to clone |
+| `UIMessageQueue::AddMessage` | `TBD` | ⏳ | open/close menu (next) |
+| Options-menu inject point | `TBD` | ⏳ | trampoline + call original (next) |
+
+**Register a custom menu (the plan for HagUIMenu):**
+```c
+auto reg = ((Registry*(*)(void*))FromRVA(0xFA32F0))(&param);     // or read 0x20F6A00
+((void(*)(void*, const char*, IMenu*(*)()))FromRVA(0xFA5480))(reg, "HagUIMenu", &HagUIMenu::Create);
+// Create(): allocate -> set 9-slot IMenu vtable (clone 0x18F0CE0) -> LoadMovie(BSScaleformMgr, this, &this[0x10], "HagUI", 2, 0) -> flags
+```
 
 `GFxMovieView` vtable slots (from LoadMovie): +0x50 Invoke, +0x88 GetVariable, +0xC0 CreateView,
 +0xD8 SetScaleMode, +0xF8 GetVisibleRect, +0x118 SetViewport, +0x128 Display.
