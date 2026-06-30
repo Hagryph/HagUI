@@ -3,16 +3,88 @@
 #include "Log.h"
 #include "Offsets.h"
 
+// HagUIMenu wiring. Modelled byte-for-byte on the RE'd BarterMenu creator
+// (docs/UI-RE.md): allocate -> set a 9-slot IMenu vtable -> LoadMovie -> flags.
+// Create() and the vtable are NOT exercised until the menu is shown; Register()
+// is the only part run so far (safe — it just inserts into the menu map).
 namespace hag::ui {
 
-void HagMenu::Register() {
-    if (offsets::kUI_Register == 0) {
-        HAG_WARN("HagMenu::Register skipped - UI offsets not filled yet (see docs/UI-RE.md)");
-        return;
+namespace {
+    using AllocFn     = void* (*)(void* self, std::size_t size, std::size_t align);
+    using FreeFn      = void  (*)(void* self, void* ptr);
+    using LoadMovieFn = bool  (*)(void* sfMgr, void* menu, void* viewOut, const char* name, int scaleMode, int unk);
+    using RegisterFn  = void  (*)(void* registry, const char* name, void* creator);
+
+    void* Allocator()  { return *reinterpret_cast<void**>(offsets::FromRVA(offsets::kMenuAllocator_ptr)); }
+
+    // --- our IMenu vtable: overrides + reused generic game bases (see imenu_vtable) ---
+    void* HagDtor(void* self, unsigned int flags);
+    void  HagRegisterFuncs(void* self, void* movieView);
+    unsigned int HagProcessMessage(void* self, void* msg);
+
+    void** Vtable() {
+        static void* vt[9] = {};
+        if (!vt[0]) {
+            vt[0] = reinterpret_cast<void*>(&HagDtor);                       // ~Menu
+            vt[1] = reinterpret_cast<void*>(&HagRegisterFuncs);              // RegisterFuncs
+            vt[2] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_2));
+            vt[3] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_3));
+            vt[4] = reinterpret_cast<void*>(&HagProcessMessage);            // ProcessMessage
+            vt[5] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_5));
+            vt[6] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_5)); // AdvanceMovie (TODO: confirm)
+            vt[7] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_7));
+            vt[8] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_8));
+        }
+        return vt;
     }
-    // TODO(P2): cast offsets::FromRVA(kUI_Register) to the engine ABI and
-    // register kName with a creator that builds our IMenu + loads the movie.
-    HAG_INFO("HagMenu::Register - registering '{}'", kName);
+
+    void* HagDtor(void* self, unsigned int flags) {
+        HAG_INFO("HagUIMenu::~ flags={:#x}", flags);
+        if (flags & 1) {
+            void* a = Allocator();
+            auto** avt = *reinterpret_cast<void***>(a);
+            reinterpret_cast<FreeFn>(avt[0x60 / 8])(a, self);
+        }
+        return self;
+    }
+
+    void HagRegisterFuncs(void* /*self*/, void* /*movieView*/) {
+        HAG_INFO("HagUIMenu::RegisterFuncs");   // TODO: register a 'Close' AS callback
+    }
+
+    unsigned int HagProcessMessage(void* /*self*/, void* msg) {
+        const unsigned int type = *reinterpret_cast<unsigned int*>(reinterpret_cast<char*>(msg) + 8);
+        HAG_INFO("HagUIMenu::ProcessMessage type={}", type);
+        // TODO(next): on show, draw the golden/black welcome panel via GFxValue.
+        return 0;  // kIgnore for now; refine once we observe live behaviour
+    }
+}  // namespace
+
+void* HagMenu::Create() {
+    HAG_INFO("HagUIMenu::Create");
+    void* a = Allocator();
+    if (!a) { HAG_ERR("HagUIMenu::Create - no allocator"); return nullptr; }
+    auto** avt = *reinterpret_cast<void***>(a);
+    void* menu = reinterpret_cast<AllocFn>(avt[0x50 / 8])(a, 0x40, 0);
+    if (!menu) { HAG_ERR("HagUIMenu::Create - alloc failed"); return nullptr; }
+    std::memset(menu, 0, 0x40);
+    *reinterpret_cast<void***>(menu) = Vtable();                                   // +0x00 vtable
+
+    void* sfMgr = *reinterpret_cast<void**>(offsets::FromRVA(offsets::kBSScaleformManager_ptr));
+    auto  loadMovie = reinterpret_cast<LoadMovieFn>(offsets::FromRVA(offsets::kScaleform_LoadMovie));
+    void* viewSlot = reinterpret_cast<char*>(menu) + offsets::menu_layout::kMovieView;  // +0x10
+    const bool ok = loadMovie(sfMgr, menu, viewSlot, "HagUI", 1, 0);
+    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + offsets::menu_layout::kFlags) = 4;
+    HAG_INFO("HagUIMenu::Create - LoadMovie('HagUI')={} menu={}", ok, menu);
+    return menu;
+}
+
+void HagMenu::Register() {
+    void* registry = *reinterpret_cast<void**>(offsets::FromRVA(offsets::kUI_Registry_ptr));
+    if (!registry) { HAG_WARN("HagUIMenu::Register - UI registry null (too early?)"); return; }
+    reinterpret_cast<RegisterFn>(offsets::FromRVA(offsets::kUI_Register))(
+        registry, kName, reinterpret_cast<void*>(&HagMenu::Create));
+    HAG_INFO("HagUIMenu registered via UI::Register (registry={})", registry);
 }
 
 }  // namespace hag::ui

@@ -2,14 +2,15 @@
 
 namespace hag::ui {
 
-// Owns the HagUI Scaleform menu. Real registration + drawing land once the
-// Ghidra dump fills hag::offsets (see docs/UI-RE.md). For now this only proves
-// the plugin lifecycle is wired end to end.
+// HagUIMenu: our custom Scaleform menu, registered with the game's UI registry.
+// Register() is safe to call live (just adds a name->creator entry). Create() is
+// what the engine invokes when the menu is shown -- not exercised until we open it.
 class HagMenu {
 public:
     static constexpr const char* kName = "HagUIMenu";
 
-    static void Register();  // will call UI::Register once offsets are known
+    static void  Register();   // UI::Register(registry, "HagUIMenu", &Create)
+    static void* Create();     // engine creator -> returns a new IMenu*
 };
 
 }  // namespace hag::ui

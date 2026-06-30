@@ -13,6 +13,17 @@ Plugin& Plugin::Get() {
     return s;
 }
 
+namespace {
+// SKSE -> us. Register our menu once the game's UI/data is up (kDataLoaded);
+// the UI registry may not exist yet at plugin-load time.
+void OnSKSEMessage(skse::Message* msg) {
+    if (msg && msg->type == skse::kMessage_DataLoaded) {
+        HAG_INFO("kDataLoaded -> registering HagUIMenu");
+        ui::HagMenu::Register();
+    }
+}
+}  // namespace
+
 bool Plugin::OnLoad(const skse::Interface* skse) {
     Log::Init("HagUI");
     HAG_INFO("HagUI loading - SKSE {} runtime {:#x} base {:#x}",
@@ -24,7 +35,16 @@ bool Plugin::OnLoad(const skse::Interface* skse) {
         return false;
     }
 
-    ui::HagMenu::Register();
+    if (skse) {
+        auto* msg = reinterpret_cast<skse::MessagingInterface*>(
+            skse->QueryInterface(skse::kInterface_Messaging));
+        if (msg) {
+            msg->RegisterListener(skse->GetPluginHandle(), "SKSE", &OnSKSEMessage);
+            HAG_INFO("registered SKSE message listener");
+        } else {
+            HAG_ERR("no SKSE messaging interface");
+        }
+    }
 
     if (!Hooking::Commit()) {
         return false;

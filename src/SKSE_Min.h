@@ -47,4 +47,35 @@ struct Interface {
     const void* (*GetPluginInfo)(const char* name);
 };
 
+// QueryInterface(id) ids
+constexpr std::uint32_t kInterface_Messaging = 5;
+
+// SKSE -> plugin messages (sender == "SKSE")
+enum : std::uint32_t {
+    kMessage_PostLoad = 0,
+    kMessage_PostPostLoad,
+    kMessage_PreLoadGame,
+    kMessage_PostLoadGame,
+    kMessage_SaveGame,
+    kMessage_DeleteGame,
+    kMessage_InputLoaded,
+    kMessage_NewGame,
+    kMessage_DataLoaded,   // 8 — game data fully loaded; UI is up
+};
+
+struct Message {
+    const char*   sender;
+    std::uint32_t type;
+    std::uint32_t dataLen;
+    void*         data;
+};
+using EventCallback = void (*)(Message* msg);
+
+struct MessagingInterface {
+    std::uint32_t interfaceVersion;
+    bool  (*RegisterListener)(std::uint32_t listenerHandle, const char* sender, EventCallback handler);
+    bool  (*Dispatch)(std::uint32_t senderHandle, std::uint32_t type, void* data, std::uint32_t dataLen, const char* receiver);
+    void* (*GetEventDispatcher)(std::uint32_t dispatcherId);
+};
+
 }  // namespace skse
