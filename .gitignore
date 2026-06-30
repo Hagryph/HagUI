@@ -9,3 +9,10 @@ CMakeUserPresets.json
 /ghidra/*.rep/
 /ghidra/*.gpr
 /ghidra/*.lock
+
+# SWF build temporaries (make_swf.ps1)
+/assets/_scripts/
+/assets/_verify/
+/assets/_asdump/
+/assets/HagUI_stage.swf
+/assets/HagUI_built.swf

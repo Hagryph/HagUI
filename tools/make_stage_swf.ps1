@@ -3,7 +3,7 @@
 # movie only needs to be an empty stage Scaleform can instantiate. Output:
 #   <repo>\assets\HagUI.swf   (uncompressed FWS v8, 1280x720, near-black bg)
 $ErrorActionPreference = 'Stop'
-$out = Join-Path $PSScriptRoot '..\assets\HagUI.swf'
+$out = Join-Path $PSScriptRoot '..\assets\HagUI_stage.swf'
 New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
 
 # --- bit writer for the FrameSize RECT ---
@@ -28,6 +28,10 @@ $body.Add([byte]1); $body.Add([byte]0)         # FrameCount = 1
 $bg = (9 -shl 6) -bor 3                          # SetBackgroundColor tag (id 9, len 3)
 $body.Add([byte]($bg -band 0xFF)); $body.Add([byte](($bg -shr 8) -band 0xFF))
 $body.Add([byte]0x0A); $body.Add([byte]0x0A); $body.Add([byte]0x0C)  # RGB near-black (#0A0A0C)
+# DoAction (tag 12) placeholder on frame 1 - a script slot for FFDec to replace with our AS2.
+$da = (12 -shl 6) -bor 2
+$body.Add([byte]($da -band 0xFF)); $body.Add([byte](($da -shr 8) -band 0xFF))
+$body.Add([byte]0x07); $body.Add([byte]0x00)   # ActionStop, ActionEnd
 $body.Add([byte]0x40); $body.Add([byte]0x00)   # ShowFrame (id 1, len 0)
 $body.Add([byte]0x00); $body.Add([byte]0x00)   # End (id 0, len 0)
 
