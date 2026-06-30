@@ -2,6 +2,7 @@
 #include "UI/HagMenu.h"
 #include "Log.h"
 #include "Offsets.h"
+#include "Hooking.h"
 
 // HagUIMenu wiring. Modelled byte-for-byte on the RE'd BarterMenu creator
 // (docs/UI-RE.md): allocate -> set a 9-slot IMenu vtable -> LoadMovie -> flags.
@@ -86,6 +87,14 @@ namespace {
         }
         return 0;
     }
+
+    // --- debug open-trigger: hook the Main Menu "Credits" handler ---
+    using VoidFn = void (*)();
+    VoidFn g_origCredits = nullptr;
+    void Detour_Credits() {
+        HAG_INFO("Credits clicked -> opening HagUIMenu (debug trigger)");
+        HagMenu::Open();  // (debug) not forwarding to original, so only HagUI shows
+    }
 }  // namespace
 
 void* HagMenu::Create() {
@@ -131,6 +140,15 @@ void HagMenu::Register() {
     reinterpret_cast<RegisterFn>(offsets::FromRVA(offsets::kUI_Register))(
         registry, kName, reinterpret_cast<void*>(&HagMenu::Create));
     HAG_INFO("HagUIMenu registered via UI::Register (registry={})", registry);
+}
+
+void HagMenu::InstallTrigger() {
+    const auto target = offsets::FromRVA(0x942820);  // Main Menu "OpenCreditsMenu" handler
+    if (Hooking::Create<VoidFn>(target, &Detour_Credits, g_origCredits)) {
+        HAG_INFO("HagUIMenu: debug trigger hooked on Credits @{:#x}", target);
+    } else {
+        HAG_ERR("HagUIMenu: failed to hook Credits handler");
+    }
 }
 
 }  // namespace hag::ui

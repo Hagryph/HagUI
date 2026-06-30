@@ -9,9 +9,10 @@ class HagMenu {
 public:
     static constexpr const char* kName = "HagUIMenu";
 
-    static void  Register();   // UI::Register(registry, "HagUIMenu", &Create)
-    static void* Create();     // engine creator -> returns a new IMenu*
-    static void  Open();       // UIMessageQueue::AddMessage("HagUIMenu", kShow)
+    static void  Register();        // UI::Register(registry, "HagUIMenu", &Create)
+    static void* Create();          // engine creator -> returns a new IMenu*
+    static void  Open();            // UIMessageQueue::AddMessage("HagUIMenu", kShow)
+    static void  InstallTrigger();  // (debug) trampoline-hook the Main Menu Credits handler to Open()
 };
 
 }  // namespace hag::ui
