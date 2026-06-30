@@ -94,18 +94,29 @@ then we add the in-Options button as step 2 once the menu pipeline is confirmed 
 can't be obtained without one. Decision finalised after the dump confirms `GFxValue::Invoke`/
 movie-root access.
 
-## 7. Address table — fill from `ghidra/ui_dump.txt` (RVAs off image base 0x140000000)
+## 7. Address table — recovered from the DECRYPTED 1.6.1170 (RVAs off image base 0x140000000)
 
-| Symbol | RVA | Notes |
-|--------|-----|-------|
-| `UI::GetSingleton` / singleton ptr | `TBD` | |
-| `UI::Register` | `TBD` | menu name + creator |
-| `UI::IsMenuOpen` | `TBD` | verification call |
-| `UIMessageQueue::AddMessage` | `TBD` | open/close |
-| `BSScaleformManager::LoadMovieEx` | `TBD` | bind movie |
-| `GFxValue::Invoke` | `TBD` | AS bridge |
-| menu-registrar fn (ABI sample) | `TBD` | top hit in dump |
-| `IMenu` vtable | `TBD` | slot order |
+> The retail exe is **SteamStub-encrypted**; analysis was done on a Steamless-unpacked copy
+> (`C:\dev\re\SkyrimSE.exe.unpacked.exe`). RVAs map to the live game unchanged. Raw findings in
+> `ghidra/ui_xref.txt` (xrefs), `ghidra/ui_decomp.txt` (pseudocode), `ghidra/ui_refs.txt` (RTTI).
+
+| Symbol | RVA | Status | Notes |
+|--------|-----|--------|-------|
+| `UI` ctor (menu-name table) | `0xFB7E10` | ✅ | interns 47 menu BSFixedStrings; sets singleton global |
+| `UI*` singleton global | `0x20F8958` | ✅ | `*(UI**)(base+rva)` |
+| `BSFixedString::ctor` | `0xCEC5D0` | ✅ | `(dst, const char*)` |
+| `BSScaleformManager::LoadMovie` | `0xFB0110` | ✅ | `(this, IMenu*, GFxMovieView**, name, flags)`; builds `Interface/<name>.swf` |
+| `GFxMovieView::Invoke(path)` | `0xFBFB10` | ✅ | invokes `_root.x` AS |
+| `GFx` movie file loader | `0x1034E30` | ✅ | returns movie def |
+| `BSScaleformFileOpener::Open` | `0xFB4490` | ✅ | BSResource/BSA-backed (the BSA chain) |
+| `GFxLoader::Read` | `0x10323F0` | ✅ | SWF/GFX parse |
+| `GFxValue::ObjectInterface` API | `0x10C3AB0` | ✅ | CreateEmptyMovieClip/AttachMovie/SetText/Invoke… |
+| `UI::Register` (name→creator) | `TBD` | ⏳ | next pass |
+| `UIMessageQueue::AddMessage` | `TBD` | ⏳ | open/close menu |
+| `IMenu` vtable (sample) | `TBD` | ⏳ | slot order |
+
+`GFxMovieView` vtable slots (from LoadMovie): +0x50 Invoke, +0x88 GetVariable, +0xC0 CreateView,
++0xD8 SetScaleMode, +0xF8 GetVisibleRect, +0x118 SetViewport, +0x128 Display.
 
 ## 8. Theme — black + gold (from Manga List / LoL Game Helper / GrepolisMod)
 
