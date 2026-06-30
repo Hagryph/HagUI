@@ -97,13 +97,17 @@ function buildWelcome()
    card.lineStyle(1, 0xE0B34A, 42, true, "none", "round", "round");
    card.beginFill(0x1A1712, 96); rrPath(card, cx, cy, cw, ch, 14); card.endFill();
 
-   // gold left rail: accent -> accent-dim gradient, rounded-left, with a faint glow halo
-   var halo = card.createEmptyMovieClip("halo", 14);
-   halo.beginFill(0xE0B34A, 16); rect(halo, cx, cy + 6, 16, ch - 12); halo.endFill();
-   var rail = card.createEmptyMovieClip("rail", 15);
-   rail.beginGradientFill("linear", [0xE0B34A, 0xB8862F], [100, 100], [0, 255],
-      boxM(cx, cy, 6, ch, Math.PI / 2));
-   rrLeft(rail, cx, cy + 1, 6, ch - 2, 4); rail.endFill();
+   // ---- left accent: a soft glow fading right + a bright accent->accent-dim rail. Both are plain
+   // full-height bars CLIPPED by a mask using the card's IDENTICAL rounded-rect path, so they
+   // follow the radius-14 corners exactly and stay flush with the border (no manual corner math). ----
+   var railG = card.createEmptyMovieClip("railG", 14);
+   railG.beginGradientFill("linear", [0xE0B34A, 0xE0B34A], [26, 0], [0, 255], boxM(cx, cy, 30, ch, 0));
+   rect(railG, cx, cy, 30, ch); railG.endFill();
+   railG.beginGradientFill("linear", [0xE0B34A, 0xB8862F], [100, 100], [0, 255], boxM(cx, cy, 6, ch, Math.PI / 2));
+   rect(railG, cx, cy, 6, ch); railG.endFill();
+   var rmask = card.createEmptyMovieClip("rmask", 13);
+   rmask.beginFill(0xFFFFFF, 100); rrPath(rmask, cx, cy, cw, ch, 14); rmask.endFill();
+   railG.setMask(rmask);
 
    // corner flourishes (thin gold L-brackets, top-left + bottom-right) for the framed look
    var fl = card.createEmptyMovieClip("fl", 16);
@@ -130,7 +134,7 @@ function buildWelcome()
 
    // tagline
    mkText(card, "tag", 23, px, cy + 198, tw, 70,
-      "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &mdash;<br>configuration, tools, and more, gathered in one place.</font>");
+      "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &#8212;<br>configuration, tools, and more, gathered in one place.</font>");
 
    // hint pill: ESC / click to close
    var pw = 232;
@@ -141,11 +145,11 @@ function buildWelcome()
    pill.lineStyle(1, 0xE0B34A, 34, true, "none", "round", "round");
    pill.beginFill(0xE0B34A, 12); rrPath(pill, plx, ply, pw, ph, ph / 2); pill.endFill();
    mkText(pill, "pt", 1, plx, ply + 7, pw, 22,
-      "<p align='center'><font face='$EverywhereBoldFont' size='13' color='#E0B34A'>ESC&nbsp;&nbsp;&middot;&nbsp;&nbsp;CLICK&nbsp;TO&nbsp;CLOSE</font></p>");
+      "<p align='center'><font face='$EverywhereBoldFont' size='13' color='#E0B34A'>ESC&nbsp;&nbsp;&#183;&nbsp;&nbsp;CLICK&nbsp;TO&nbsp;CLOSE</font></p>");
 
    // footer mark (bottom-right inside the card)
    mkText(card, "foot", 24, cx + cw - 230, cy + ch - 40, 200, 20,
-      "<p align='right'><font face='$EverywhereBoldFont' size='11' color='#6B6456'>HAGRYPH&nbsp;&nbsp;&middot;&nbsp;&nbsp;EST.&nbsp;MMXXVI</font></p>");
+      "<p align='right'><font face='$EverywhereBoldFont' size='11' color='#6B6456'>HAGRYPH&nbsp;&nbsp;&#183;&nbsp;&nbsp;EST.&nbsp;MMXXVI</font></p>");
 }
 
 // ---- boot ----
