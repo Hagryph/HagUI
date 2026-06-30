@@ -115,22 +115,26 @@ function buildNav(card, nx, ny, nw)
    var nav = card.createEmptyMovieClip("nav", 18);
    nav.lineStyle(1, 0xE0B34A, 16);                         // baseline hairline under the row
    nav.moveTo(nx, ny + 34); nav.lineTo(nx + nw, ny + 34);
-   var x = nx;
+   var pad = 16;     // equal free space on EACH side of the label, inside the highlight
+   var gap = 12;     // space between tab cells
+   var cx = nx;
    var i = 0;
    while (i < _root.HAG_TABS.length)
    {
       var act = (i == _root.hagActive);
       var t = nav.createEmptyMovieClip("t" + i, 10 + i);
       t._idx = i;
-      var lbl = _root.mkText(t, "lbl", 2, x, ny + 6, 280, 24, _root.tabHtml(_root.HAG_TABS[i], act));
+      var lbl = _root.mkText(t, "lbl", 2, cx, ny + 6, 300, 24, _root.tabHtml(_root.HAG_TABS[i], act));
       var tw = lbl.textWidth;
       if (!(tw > 10)) { tw = _root.HAG_TABS[i].length * 11 + 4; }
-      t.beginFill(0xFFFFFF, 0); _root.rect(t, x - 7, ny, tw + 14, 35); t.endFill();   // invisible hit area
-      if (act) { t.lineStyle(2, 0xE0B34A, 100); t.moveTo(x, ny + 34); t.lineTo(x + tw, ny + 34); }
+      var cellW = tw + pad * 2;          // the highlight is wider than the text by 2*pad
+      lbl._x = cx + pad - 2;             // center the label inside the cell (-2 = Flash text gutter)
+      t.beginFill(0xFFFFFF, 0); _root.rect(t, cx, ny, cellW, 35); t.endFill();              // hit area = the cell
+      if (act) { t.lineStyle(2, 0xE0B34A, 100); t.moveTo(cx, ny + 34); t.lineTo(cx + cellW, ny + 34); }  // underline spans the cell
       t.onRelease = function() { _root.selectTab(this._idx); };
       t.onRollOver = function() { _root.tabHover(this._idx, true); };
       t.onRollOut = function() { _root.tabHover(this._idx, false); };
-      x = x + tw + 30;
+      cx = cx + cellW + gap;
       i = i + 1;
    }
 }
