@@ -41,6 +41,17 @@ if (Test-Path $swf) {
     Write-Host '(HagUI.swf not built yet - skipped; drop it at assets\HagUI.swf)'
 }
 
+# Modified StartMenu.swf: vanilla main-menu movie + a "HagUI" entry above Credits whose
+# click fires gfx.io.GameDelegate.call("OpenHagUI") -> our native handler. Loose file
+# overrides the Interface BSA.
+$startSwf = Join-Path $root 'assets\StartMenu.swf'
+if (Test-Path $startSwf) {
+    Copy-Item $startSwf (Join-Path $iface 'StartMenu.swf') -Force
+    Write-Host "deployed StartMenu.swf -> $iface"
+} else {
+    Write-Host '(StartMenu.swf not present - skipped; the main-menu button needs it)'
+}
+
 # meta.ini so MO2 lists it cleanly
 $meta = Join-Path $mod 'meta.ini'
 if (-not (Test-Path $meta)) {

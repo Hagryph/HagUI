@@ -99,12 +99,47 @@ namespace {
         return 0;
     }
 
-    // --- debug open-trigger: hook the Main Menu "Credits" handler ---
-    using VoidFn = void (*)();
-    VoidFn g_origCredits = nullptr;
-    void Detour_Credits() {
-        HAG_INFO("Credits clicked -> opening HagUIMenu (debug trigger)");
-        HagMenu::Open();  // (debug) not forwarding to original, so only HagUI shows
+    // --- open-trigger: a real "HagUI" main-menu button (above Credits) ---
+    // Our modified StartMenu.swf adds a list entry whose click calls
+    //   gfx.io.GameDelegate.call("OpenHagUI", []).
+    // MainMenu::RegisterFuncs registers every such native callback as
+    //   movie->vtable[1](movie, &gfxName, handler).
+    // We trampoline it: run the original (registers all the real callbacks), then
+    // register one more, "OpenHagUI" -> Hag_OpenHandler, the exact same way.
+    using RegFuncsFn = void (*)(void* self, void* movie);
+    using MakeStrFn  = void (*)(void* gfxStringOut, const char* str);
+    using RegCBFn    = void (*)(void* movie, void* gfxName, void* handler);  // movie->vtable[1]
+    RegFuncsFn g_origRegisterFuncs = nullptr;
+
+    // GFx FunctionHandler ABI: called with a Params* in rcx, returns void. We ignore the
+    // args (no params needed to open) — the same shape that worked when we hooked the
+    // OpenCreditsMenu handler directly.
+    void Hag_OpenHandler(void* /*params*/) {
+        HAG_INFO("OpenHagUI callback -> opening HagUIMenu");
+        HagMenu::Open();
+    }
+
+    void Detour_RegisterFuncs(void* self, void* movie) {
+        g_origRegisterFuncs(self, movie);                 // register the real main-menu callbacks first
+        if (!movie) { HAG_WARN("RegisterFuncs: null movie - cannot add OpenHagUI"); return; }
+
+        // Mirror the game's per-callback sequence (ui_mainmenu.txt:466-474):
+        //   FUN_140fbb150(&name,"OpenHagUI"); movie->vtable[1](movie,&name,handler); release(name);
+        std::uint64_t name = 0;
+        reinterpret_cast<MakeStrFn>(offsets::FromRVA(offsets::kGFx_MakeString))(&name, "OpenHagUI");
+        void** mvt = *reinterpret_cast<void***>(movie);
+        reinterpret_cast<RegCBFn>(mvt[offsets::kGFxMovie_RegisterCB])(
+            movie, &name, reinterpret_cast<void*>(&Hag_OpenHandler));
+        // drop our reference to the managed GFx string (atomic refcount at (ptr&~3)+8)
+        if (name) {
+            auto* rc = reinterpret_cast<volatile long*>((name & ~3ull) + 8);
+            if (_InterlockedDecrement(rc) == 0) {
+                void* a = Allocator();
+                reinterpret_cast<FreeFn>((*reinterpret_cast<void***>(a))[0x60 / 8])(
+                    a, reinterpret_cast<void*>(name & ~3ull));
+            }
+        }
+        HAG_INFO("HagUIMenu: registered 'OpenHagUI' GameDelegate callback (movie={})", movie);
     }
 
     // --- BSInputEventUser input handler (+0x30): official close on Cancel, mirroring Credits ---
@@ -185,11 +220,13 @@ void HagMenu::Register() {
 }
 
 void HagMenu::InstallTrigger() {
-    const auto target = offsets::FromRVA(0x942820);  // Main Menu "OpenCreditsMenu" handler
-    if (Hooking::Create<VoidFn>(target, &Detour_Credits, g_origCredits)) {
-        HAG_INFO("HagUIMenu: debug trigger hooked on Credits @{:#x}", target);
+    // Hook MainMenu::RegisterFuncs so we can add our "OpenHagUI" GameDelegate callback
+    // alongside the game's own. Credits is left untouched and works normally.
+    const auto target = offsets::FromRVA(offsets::kMainMenu_RegisterFuncs);
+    if (Hooking::Create<RegFuncsFn>(target, &Detour_RegisterFuncs, g_origRegisterFuncs)) {
+        HAG_INFO("HagUIMenu: hooked MainMenu::RegisterFuncs @{:#x} (adds OpenHagUI)", target);
     } else {
-        HAG_ERR("HagUIMenu: failed to hook Credits handler");
+        HAG_ERR("HagUIMenu: failed to hook MainMenu::RegisterFuncs");
     }
 }
 

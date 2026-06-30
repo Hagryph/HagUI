@@ -116,6 +116,11 @@ inline constexpr std::uintptr_t kIMenuBase_8 = 0xFAEE70;
 inline constexpr std::uintptr_t kMainMenu_Create   = 0x947410;
 inline constexpr std::uintptr_t kMainMenu_vtable   = 0x18FC980;
 inline constexpr std::uintptr_t kMainMenu_instance = 0x31AEEE8;   // *(MainMenu**)
+// MainMenu::RegisterFuncs(this, GFxMovieView* movie): registers every "GameDelegate.call"
+// callback as movie->vtable[1](movie, &gfxName, handler). We hook it, call the original,
+// then register one more — "OpenHagUI" -> our handler — so our SWF button can fire it.
+inline constexpr std::uintptr_t kMainMenu_RegisterFuncs = 0x941CC0;
+inline constexpr int            kGFxMovie_RegisterCB    = 1;  // movie vtable slot +0x08 = register native fn
 // Journal Menu = the in-game Escape/System/pause menu (Global + PerSave); movie "Quest_Journal":
 inline constexpr std::uintptr_t kJournalMenu_Create = 0x995CD0;
 inline constexpr std::uintptr_t kJournalMenu_vtable = 0x190AF38;
