@@ -52,47 +52,14 @@ namespace {
     // HagRegisterFuncs is defined below Detour_RegisterFuncs (needs the MakeStrFn/RegCBFn
     // typedefs). It binds the "CloseHagUI" GameDelegate callback onto our own movie.
 
-    // printf-style GFx invoke (confirmed): Invoke(view, "_root.method", "%d ...", ints...)
-    using InvokeF = void (*)(void* view, const char* method, const char* fmt, ...);
-
-    void DrawWelcome(void* view) {
-        if (!view) { HAG_WARN("DrawWelcome: no view"); return; }
-        const auto inv = reinterpret_cast<InvokeF>(offsets::FromRVA(offsets::kGFxMovie_Invoke));
-        const int x0 = 320, y0 = 200, x1 = 960, y1 = 520;  // panel (stage 1280x720)
-        inv(view, "_root.clear", "");
-        // near-black panel
-        inv(view, "_root.beginFill", "%d %d", 0x0A0A0C, 92);
-        inv(view, "_root.moveTo", "%d %d", x0, y0);
-        inv(view, "_root.lineTo", "%d %d", x1, y0);
-        inv(view, "_root.lineTo", "%d %d", x1, y1);
-        inv(view, "_root.lineTo", "%d %d", x0, y1);
-        inv(view, "_root.lineTo", "%d %d", x0, y0);
-        inv(view, "_root.endFill", "");
-        // gold header bar
-        inv(view, "_root.beginFill", "%d %d", 0xE0B34A, 100);
-        inv(view, "_root.moveTo", "%d %d", x0, y0);
-        inv(view, "_root.lineTo", "%d %d", x1, y0);
-        inv(view, "_root.lineTo", "%d %d", x1, y0 + 48);
-        inv(view, "_root.lineTo", "%d %d", x0, y0 + 48);
-        inv(view, "_root.lineTo", "%d %d", x0, y0);
-        inv(view, "_root.endFill", "");
-        // gold border
-        inv(view, "_root.lineStyle", "%d %d %d", 2, 0xE0B34A, 100);
-        inv(view, "_root.moveTo", "%d %d", x0, y0);
-        inv(view, "_root.lineTo", "%d %d", x1, y0);
-        inv(view, "_root.lineTo", "%d %d", x1, y1);
-        inv(view, "_root.lineTo", "%d %d", x0, y1);
-        inv(view, "_root.lineTo", "%d %d", x0, y0);
-        HAG_INFO("DrawWelcome: drew golden/black welcome panel");
-    }
-
+    // Visuals are authored entirely in HagUI.swf (assets/HagUI_Root.as builds the black+gold
+    // Welcome from AS2: gradients, embedded Skyrim fonts, rounded gold-hairline panels). C++ no
+    // longer draws into _root.
     using ProcMsgFn = unsigned int (*)(void* self, void* msg);
     unsigned int HagProcessMessage(void* self, void* msg) {
         const unsigned int type = *reinterpret_cast<unsigned int*>(reinterpret_cast<char*>(msg) + 8);
         if (type == offsets::kMsg_Show) {
-            HAG_INFO("HagUIMenu::ProcessMessage kShow -> draw");
-            void* view = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
-            DrawWelcome(view);
+            HAG_INFO("HagUIMenu::ProcessMessage kShow (SWF renders the Welcome)");
             return 0;
         }
         // Delegate everything else to the base IMenu ProcessMessage. Critically, kUserEvent(6)
