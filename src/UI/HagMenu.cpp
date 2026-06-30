@@ -205,15 +205,18 @@ void* HagMenu::Create() {
     const bool ok = loadMovie(sfMgr, menu, viewSlot, "HagUI", 1, 0);
     // Renders over the Main Menu: depth 10 (> MainMenu's 9).
     *reinterpret_cast<std::uint8_t*>(reinterpret_cast<char*>(menu) + 0x18)  = 10;  // depth/priority
-    // MENU_FLAGS (+0x1c) is the real flag bitfield. Credits=1 has NO cursor; the cursor-showing menus
-    // (MainMenu 0x20581, Journal 0xf29|0x80, Barter 0xa489) share the cursor bits Credits lacks.
-    // 0x581 = kPausesGame(0x1)|kDontHideCursorWhenTopmost(0x80)|kUpdateUsesCursor(0x100)|kRequiresUpdate(0x400):
-    // keeps the cursor visible + mouse input as a main-menu overlay, without pause/render-altering bits.
-    // Fallback ladder if the cursor still hides in-game: 0x20581 (exact MainMenu), 0x501, 0x181, 0x585.
-    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + 0x1c) = 0x581;
-    // +0x20 is NOT the flags field (base-ctor default 0x13; MainMenu/Credits write 1). Keep Credits-like:
+    // MENU_FLAGS (+0x1c). Traced the ACTUAL engine decision (not inferred from flag values):
+    // FUN_140fa5e70 (runs on every menu change) takes the topmost menu with depth<0xb and, iff
+    // (topmost->flags & 0x4) != 0, posts AddMessage("Cursor Menu", kShow) -> the cursor appears.
+    // So bit 0x4 (kUsesCursor) is THE cursor flag. HagUI is the topmost menu (depth 10), so it must
+    // carry 0x4. Value 0x5 = kPausesGame(0x1) [Credits sets this and gets keyboard+mouse input] |
+    // kUsesCursor(0x4). Kept minimal: the earlier 0x581 lacked 0x4 (no cursor) and its extra bits
+    // (0x80/0x100/0x400) only bump unrelated UI counters and risk disturbing input.
+    *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + 0x1c) = 0x5;
+    // +0x20 = input-context ID (NOT flags). FUN_140fa3fa0: if (menu[+0x20] != 0x13) push that context
+    // via FUN_140cd5450. 1 = menu mode (Credits uses 1 and receives ESC/clicks). Keep 1.
     *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(menu) + 0x20) = 1;
-    HAG_INFO("HagUIMenu::Create - LoadMovie('HagUI')={} menu={} depth=10 flags=0x581", ok, menu);
+    HAG_INFO("HagUIMenu::Create - LoadMovie('HagUI')={} menu={} depth=10 flags=0x5(cursor) ctx=1", ok, menu);
 
     // Bind our AS-facing callbacks now that the movie is loaded (mirrors the CreditsMenu creator's
     // trailing FUN_1409133b0(menu) call). Reads the GFxMovieView* LoadMovie wrote into menu+0x10.
