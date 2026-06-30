@@ -17,6 +17,8 @@ CMakeUserPresets.json
 /assets/HagUI_stage.swf
 /assets/HagUI_built.swf
 
-# Modified Bethesda main-menu movie: regenerated from the local game BSA by
-# tools/make_startmenu_swf.ps1 (not redistributed in the repo).
+# Bethesda-derived movies regenerated from the local game BSA (not redistributed):
+#   StartMenu.swf  <- tools/make_startmenu_swf.ps1  (main-menu + HagUI button)
+#   HagUI.swf      <- tools/make_hagui_swf.ps1       (CreditsMenu CLIK shell + HagUI scripts)
 /assets/StartMenu.swf
+/assets/HagUI.swf
