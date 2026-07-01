@@ -26,10 +26,9 @@ void OnSKSEMessage(skse::Message* msg) {
     }
 }
 
-// Phase-A self-test: a compiled-in Global page so the option-page pipeline (cross-DLL API model ->
-// movie push -> checkbox render -> change callback) can be verified BEFORE HagGeneral exists. Flip
-// kRegisterTestPage to false (or delete) once HagGeneral is the real consumer.
-constexpr bool kRegisterTestPage = true;
+// Phase-A self-test page: kept in the source but OFF now that HagGeneral is the real consumer.
+// Flip to true if you ever need to exercise the option-page pipeline without a consumer plugin.
+constexpr bool kRegisterTestPage = false;
 void RegisterTestPage() {
     using namespace hag::api;
     HagUI::Get().RegisterPage("General (test)", Scope::Global)
