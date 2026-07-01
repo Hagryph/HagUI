@@ -47,6 +47,12 @@ ID3D11Device* Device() { return *reinterpret_cast<ID3D11Device**>(FromRVA(game::
 using MakeStrFn    = void  (*)(void* bsFixedStrOut, const char* s);
 using DtorStrFn    = void  (*)(void* bsFixedStr);
 using VImgCreateFn = void* (*)(void* nameBSFixedStr);
+using VRegFn       = void  (*)(void* slot, void* entry);   // FUN_140faf5e0(slot, entry)
+
+// Persistent registration slot { VirtualImage* @0; ...; BSFixedString @0x10 }. FUN_140faf5e0 stores our
+// entry here (refcounted) + inserts name->image into the scaleform image-loader map. Must outlive the
+// image, so it's static and zero-initialised.
+std::uint64_t g_slot[3] = {0, 0, 0};
 
 // Real work (C++ objects live here, NOT in the __try guard). Returns true once the img is registered.
 bool DoEnsure() {
@@ -99,6 +105,12 @@ bool DoEnsure() {
     *reinterpret_cast<void**>(reinterpret_cast<char*>(entry) + game::render::VImage_Texture) = &g_wrapper;  // +0x48
     *reinterpret_cast<volatile long*>(reinterpret_cast<char*>(entry) + 8) = 0x40000000;  // pin the entry (never freed)
     g_entry = entry;
+
+    // register the entry with the scaleform image loader so img://hagCharModel resolves (mirrors the
+    // BGSUserIcon path FUN_140941970 -> FUN_140faf5e0 -> FUN_140fb3320: builds a GTexture from
+    // entry+0x48 and inserts name->image into the loader's map at scaleformMgr->imageLoader+0x20).
+    reinterpret_cast<VRegFn>(FromRVA(game::render::VImageRegister))(g_slot, entry);
+
     g_ready = true;
     HAG_INFO("Model3D: registered img://{} {}x{} (entry={} tex={} srv={})",
              Model3D::kImageName, kW, kH, entry, static_cast<void*>(tex), static_cast<void*>(srv));
