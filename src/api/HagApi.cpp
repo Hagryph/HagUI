@@ -2,6 +2,8 @@
 #include "api/HagApi.h"
 #include "Log.h"
 
+#include <algorithm>
+
 namespace hag::api {
 
 // ---- Page builders -------------------------------------------------------
@@ -74,6 +76,13 @@ std::vector<Page*> HagUI::PagesFor(MenuContext ctx) {
         if (ctx == MenuContext::MainMenu && p->GetScope() != Scope::Global) continue;
         out.push_back(p.get());
     }
+    // Stable tab order independent of plugin load order: Global (shared/persistent) pages first, then
+    // PerSave (save-specific, e.g. Character), preserving registration order within each group.
+    std::stable_sort(out.begin(), out.end(), [](const Page* a, const Page* b) {
+        const int ra = (a->GetScope() == Scope::Global) ? 0 : 1;
+        const int rb = (b->GetScope() == Scope::Global) ? 0 : 1;
+        return ra < rb;
+    });
     return out;
 }
 
