@@ -33,6 +33,8 @@ struct Option {
     double        min = 0.0, max = 1.0, step = 1.0;   // slider / stepper
     ChangeFn      onChange;
     std::uint32_t debounceMs = 0;                      // 0 = fire immediately
+    bool          enabled = true;                      // false => greyed out + not clickable
+    std::string   note;                                // small hint under the control (e.g. "applies after restart")
 };
 
 // Fluent page builder.
@@ -73,6 +75,15 @@ public:
     // Front-end reports a control moved. Routed through per-option debounce.
     void OnControlChanged(const std::string& pageTitle, const std::string& optionId, Value v);
 
+    // Update a control's value / enabled (greyed) state / note without firing its onChange. A mod
+    // calls this (via the C API) for dependent controls + restart hints; then Refresh() re-renders.
+    void SetOptionState(Page* page, const std::string& id, Value value, bool enabled, std::string note);
+
+    // Mark the rendered panel stale so the next menu tick re-pushes + re-draws it. TakeDirty is read
+    // by the renderer each tick.
+    void MarkDirty() { m_dirty = true; }
+    bool TakeDirty() { const bool d = m_dirty; m_dirty = false; return d; }
+
     // Pump debounce timers — call every menu tick with a monotonic millisecond clock.
     void PumpDebounce(std::uint64_t nowMs);
 
@@ -86,6 +97,7 @@ private:
     std::vector<std::unique_ptr<Page>> m_pages;
     std::vector<Pending>               m_pending;
     std::uint64_t                      m_nowMs = 0;
+    bool                               m_dirty = false;
 };
 
 }  // namespace hag::api

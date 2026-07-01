@@ -92,6 +92,17 @@ void HagUI::OnControlChanged(const std::string& pageTitle, const std::string& op
     m_pending.push_back({pageTitle, optionId, std::move(v), m_nowMs + opt->debounceMs});
 }
 
+void HagUI::SetOptionState(Page* page, const std::string& id, Value value, bool enabled, std::string note) {
+    if (!page) return;
+    for (auto& o : page->m_options) {
+        if (o.id != id) continue;
+        o.value   = std::move(value);
+        o.enabled = enabled;
+        o.note    = std::move(note);
+        return;
+    }
+}
+
 void HagUI::PumpDebounce(std::uint64_t nowMs) {
     m_nowMs = nowMs;
     for (std::size_t i = 0; i < m_pending.size();) {

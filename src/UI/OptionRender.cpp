@@ -95,9 +95,11 @@ void PushPages(void* view) {
         std::snprintf(p, sizeof p, "_root.hagPage%d_optCount", i); MSetNum(view, p, static_cast<double>(opts.size()));
         for (int j = 0; j < static_cast<int>(opts.size()); ++j) {
             const Option& o = opts[j];
-            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_label", i, j); MSetStr(view, p, o.label.c_str());
-            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_type",  i, j); MSetNum(view, p, static_cast<double>(static_cast<int>(o.control)));
-            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_value", i, j); MSetNum(view, p, ValueToNum(o.value));
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_label",   i, j); MSetStr(view, p, o.label.c_str());
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_type",    i, j); MSetNum(view, p, static_cast<double>(static_cast<int>(o.control)));
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_value",   i, j); MSetNum(view, p, ValueToNum(o.value));
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_enabled", i, j); MSetNum(view, p, o.enabled ? 1.0 : 0.0);
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_note",    i, j); MSetStr(view, p, o.note.c_str());
         }
     }
 }
@@ -106,13 +108,16 @@ void PushPages(void* view) {
 
 void OptionRender::BuildIfNeeded(void* view) {
     __try {
-        if (!view || view == g_builtView) return;
+        if (!view) return;
         if (!MIsAvail(view, "_root.hagReady")) return;   // SWF frame_1 boot not finished yet
+        // Rebuild on a fresh movie OR when a mod marked the model dirty (SetToggleState + Refresh).
+        const bool dirty = HagUI::Get().TakeDirty();
+        if (view == g_builtView && !dirty) return;
         InstallSetOption(view);
         PushPages(view);
         MInvoke(view, "_root.HagBuildPages");
         g_builtView = view;
-        HAG_INFO("HagUI: pushed option pages into movie {} and called HagBuildPages", view);
+        HAG_INFO("HagUI: (re)built option pages into movie {} (dirty={})", view, dirty);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 

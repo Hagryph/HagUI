@@ -74,6 +74,13 @@ void C_AddButton(HagUI_PageHandle* page, const char* id, const char* label,
     AsPage(page)->Button(id ? id : "", label ? label : "", std::move(fn));
 }
 
+void C_SetToggleState(HagUI_PageHandle* page, const char* id, bool value, bool enabled, const char* note) {
+    if (!page) return;
+    HagUI::Get().SetOptionState(AsPage(page), id ? id : "", Value(value), enabled, note ? note : "");
+}
+
+void C_Refresh() { HagUI::Get().MarkDirty(); }
+
 // The single interface table handed to every consumer (function addresses are
 // process-stable, so one shared const instance is correct).
 const HagUIAPI g_api = {
@@ -84,6 +91,8 @@ const HagUIAPI g_api = {
     &C_AddStepper,
     &C_AddText,
     &C_AddButton,
+    &C_SetToggleState,
+    &C_Refresh,
 };
 
 }  // namespace

@@ -200,20 +200,22 @@ function showCloseButton(card, on)
 // as a flat _root.hagPage<i>_opt<j>_* model; HagBuildPages() reads it into _root.HAG_PAGES). ----
 
 // gold checkbox box: hairline square, faint fill (brighter when checked), gold check glyph when on.
-function paintCheckbox(box, checked, hover)
+function paintCheckbox(box, checked, hover, enabled)
 {
    box.clear();
+   var col = 0xE0B34A;
+   if (!enabled) { col = 0x6B6456; }         // dim gold when greyed out (disabled)
    var ba = 42;
-   if (hover) { ba = 82; }
-   box.lineStyle(1, 0xE0B34A, ba, true, "none", "round", "round");
+   if (hover && enabled) { ba = 82; }
+   box.lineStyle(1, col, ba, true, "none", "round", "round");
    var fa = 6;
    if (checked) { fa = 22; }
-   box.beginFill(0xE0B34A, fa);
+   box.beginFill(col, fa);
    _root.rrPath(box, 0, 0, 22, 22, 5);
    box.endFill();
    if (checked)
    {
-      box.lineStyle(2, 0xE0B34A, 100, true, "none", "round", "round");
+      box.lineStyle(2, col, 100, true, "none", "round", "round");
       box.moveTo(5, 11); box.lineTo(9, 16); box.lineTo(17, 6);
    }
 }
@@ -221,6 +223,7 @@ function paintCheckbox(box, checked, hover)
 // C++ via the native _root.hagSetOption(pageIdx, optIdx, value) function (all Number args).
 function makeCheckbox(parent, name, depth, x, y, w, op)
 {
+   var en = (op.enabled != 0);
    var row = parent.createEmptyMovieClip(name, depth);
    row._x = x; row._y = y;
    row._op = op;
@@ -228,18 +231,30 @@ function makeCheckbox(parent, name, depth, x, y, w, op)
    row.beginFill(0xFFFFFF, 0); _root.rect(row, 0, 0, w, 30); row.endFill();   // invisible hit area
    var box = row.createEmptyMovieClip("box", 2);
    box._y = 4;
-   _root.paintCheckbox(box, row._checked, false);
+   _root.paintCheckbox(box, row._checked, false, en);
+   var lblCol = "#ECE6DA";
+   if (!en) { lblCol = "#6B6456"; }          // dim the label too when disabled
    _root.mkText(row, "lbl", 3, 36, 3, w - 36, 26,
-      "<font face='$EverywhereFont' size='17' color='#ECE6DA'>" + op.label + "</font>");
-   row.onRollOver = function() { _root.paintCheckbox(this.box, this._checked, true); };
-   row.onRollOut  = function() { _root.paintCheckbox(this.box, this._checked, false); };
-   row.onReleaseOutside = function() { _root.paintCheckbox(this.box, this._checked, false); };
-   row.onRelease  = function()
+      "<font face='$EverywhereFont' size='17' color='" + lblCol + "'>" + op.label + "</font>");
+   // per-option note (e.g. "applies after restart") — right-aligned on the row, dim gold italic
+   if (op.note != undefined && op.note != "" && op.note != "undefined")
    {
-      this._checked = !this._checked;
-      _root.paintCheckbox(this.box, this._checked, true);
-      if (_root.hagSetOption) { _root.hagSetOption(this._op.pageIdx, this._op.optIdx, this._checked ? 1 : 0); }
-   };
+      _root.mkText(row, "note", 4, w - 236, 6, 232, 18,
+         "<p align='right'><font face='$EverywhereFont' size='12' color='#B8862F'><i>" + op.note + "</i></font></p>");
+   }
+   if (en)
+   {
+      row.onRollOver = function() { _root.paintCheckbox(this.box, this._checked, true, true); };
+      row.onRollOut  = function() { _root.paintCheckbox(this.box, this._checked, false, true); };
+      row.onReleaseOutside = function() { _root.paintCheckbox(this.box, this._checked, false, true); };
+      row.onRelease  = function()
+      {
+         this._checked = !this._checked;
+         _root.paintCheckbox(this.box, this._checked, true, true);
+         if (_root.hagSetOption) { _root.hagSetOption(this._op.pageIdx, this._op.optIdx, this._checked ? 1 : 0); }
+      };
+   }
+   // disabled rows get NO handlers -> not clickable (greyed out)
    return row;
 }
 function buildOptionPage(c, x, y, w, pageIdx)
@@ -284,6 +299,10 @@ function HagBuildPages()
          op.label = String(_root["hagPage" + i + "_opt" + j + "_label"]);
          op.type = Number(_root["hagPage" + i + "_opt" + j + "_type"]);
          op.value = Number(_root["hagPage" + i + "_opt" + j + "_value"]);
+         var en = _root["hagPage" + i + "_opt" + j + "_enabled"];
+         op.enabled = (en == undefined) ? 1 : (Number(en) != 0 ? 1 : 0);   // default enabled if absent
+         var nt = _root["hagPage" + i + "_opt" + j + "_note"];
+         op.note = (nt == undefined) ? "" : String(nt);
          op.pageIdx = i;
          op.optIdx = j;
          pg.opts.push(op);
