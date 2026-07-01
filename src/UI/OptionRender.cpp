@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "UI/OptionRender.h"
 #include "UI/GfxValue.h"
+#include "UI/Model3D.h"
 #include "api/HagApi.h"
 #include "Log.h"
 
@@ -143,6 +144,8 @@ void OptionRender::BuildIfNeeded(void* view) {
         const bool dirty = HagUI::Get().TakeDirty();
         if (view == g_builtView && !dirty) return;
         InstallSetOption(view);
+        // Ensure the Model3D img:// texture exists + tell the SWF it can loadMovie("img://hagCharModel").
+        MSetNum(view, "_root.hagModelReady", Model3D::EnsureTexture() ? 1.0 : 0.0);
         PushPages(view);
         MInvoke(view, "_root.HagBuildPages");
         g_builtView = view;

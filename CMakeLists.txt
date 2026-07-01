@@ -14,6 +14,7 @@ add_library(HagUI SHARED
     src/UI/HagMenu.cpp
     src/UI/GfxInject.cpp
     src/UI/OptionRender.cpp
+    src/UI/Model3D.cpp
     src/api/HagApi.cpp
     src/api/HagApiExport.cpp
 )
@@ -21,7 +22,7 @@ add_library(HagUI SHARED
 target_include_directories(HagUI PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/../shared")
 target_precompile_headers(HagUI PRIVATE src/PCH.h)
 target_compile_definitions(HagUI PRIVATE UNICODE _UNICODE)
-target_link_libraries(HagUI PRIVATE spdlog::spdlog minhook::minhook Shell32 Ole32)
+target_link_libraries(HagUI PRIVATE spdlog::spdlog minhook::minhook d3d11 Shell32 Ole32)
 
 # DLL named exactly HagUI.dll (no "lib" prefix)
 set_target_properties(HagUI PROPERTIES PREFIX "" OUTPUT_NAME "HagUI")

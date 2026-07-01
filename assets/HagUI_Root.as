@@ -330,11 +330,40 @@ function buildModel3D(parent, name, depth, x, y, w, h, op)
    m.beginFill(0x0A0A0C, 92);
    _root.rrPath(m, x, y, w, h, 10);
    m.endFill();
-   var img = m.createEmptyMovieClip("img", 2);
-   img._x = x; img._y = y;
-   if (_root.hagModelReady) { img.loadMovie("img://hagCharModel"); }
-   _root.mkText(m, "hint", 3, x, y + h / 2 - 14, w, 28,
-      "<p align='center'><font face='$EverywhereFont' size='14' color='#6B6456'>" + op.label + "</font></p>");
+   if (_root.hagModelReady)
+   {
+      // load our native img:// texture into a child clip, masked to the panel + scaled to fit
+      var cont = m.createEmptyMovieClip("cont", 2);
+      var img = cont.createEmptyMovieClip("img", 1);
+      img._x = x; img._y = y;
+      var mk = m.createEmptyMovieClip("imask", 3);
+      mk.beginFill(0xFFFFFF, 100); _root.rrPath(mk, x, y, w, h, 10); mk.endFill();
+      cont.setMask(mk);
+      var mcl = new MovieClipLoader();
+      var lis = new Object();
+      lis.px = x; lis.py = y; lis.pw = w; lis.ph = h;
+      lis.onLoadInit = function(t)
+      {
+         var iw = t._width;
+         var ih = t._height;
+         if (iw > 0 && ih > 0)
+         {
+            var s = Math.min(this.pw / iw, this.ph / ih);
+            t._xscale = s * 100;
+            t._yscale = s * 100;
+            t._x = this.px + (this.pw - iw * s) / 2;
+            t._y = this.py + (this.ph - ih * s) / 2;
+         }
+      };
+      mcl.addListener(lis);
+      _root.hagMcl = mcl;   // keep the loader alive past this scope
+      mcl.loadClip("img://hagCharModel", img);
+   }
+   else
+   {
+      _root.mkText(m, "hint", 4, x, y + h / 2 - 14, w, 28,
+         "<p align='center'><font face='$EverywhereFont' size='14' color='#6B6456'>" + op.label + "</font></p>");
+   }
    return m;
 }
 function buildOptionPage(c, x, y, w, pageIdx)
