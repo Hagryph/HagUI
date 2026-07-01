@@ -15,7 +15,7 @@ add_library(HagUI SHARED
     src/api/HagApi.cpp
 )
 
-target_include_directories(HagUI PRIVATE src)
+target_include_directories(HagUI PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/../shared")
 target_precompile_headers(HagUI PRIVATE src/PCH.h)
 target_compile_definitions(HagUI PRIVATE UNICODE _UNICODE)
 target_link_libraries(HagUI PRIVATE spdlog::spdlog minhook::minhook Shell32 Ole32)
