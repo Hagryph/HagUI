@@ -11,6 +11,11 @@ public:
     // once per freshly-loaded movie (no-op until the SWF's frame_1 boot has run and
     // until a new movie appears). Safe to call every tick.
     static void BuildIfNeeded(void* movieView);
+
+    // Cheap per-tick refresh of the LIVE widgets (ProgressBar fill/text) after a build. Polls each
+    // bar's sample() and pushes fraction+text, then calls _root.HagUpdateBars so the AS resizes the
+    // existing bar clips (no full rebuild). Call every menu tick, after BuildIfNeeded.
+    static void UpdateLive(void* movieView);
 };
 
 }  // namespace hag::ui

@@ -257,22 +257,127 @@ function makeCheckbox(parent, name, depth, x, y, w, op)
    // disabled rows get NO handlers -> not clickable (greyed out)
    return row;
 }
+// ---- ProgressBar widget (type 5): read-only, live. C++ pushes _fill (0..1) + _bartext each tick and
+// calls HagUpdateBars(); we resize the fill pill in place (registered in _root.HAG_BARS). ----
+function paintBar(bar, frac, w, h, color)
+{
+   bar.clear();
+   bar.lineStyle(1, color, 26, true, "none", "round", "round");   // track
+   bar.beginFill(0x231E16, 90);
+   _root.rrPath(bar, 0, 0, w, h, h / 2);
+   bar.endFill();
+   var fw = Math.round(w * frac);                                 // fill
+   if (fw > 0 && fw < h) { fw = h; }        // keep a rounded pill visible for tiny nonzero values
+   if (fw > w) { fw = w; }
+   if (fw > 0)
+   {
+      bar.beginFill(color, 92);
+      _root.rrPath(bar, 0, 0, fw, h, h / 2);
+      bar.endFill();
+   }
+}
+function buildProgressBar(parent, name, depth, x, y, w, op)
+{
+   var color = Number(op.color);
+   if (!(color >= 0)) { color = 0xE0B34A; }
+   var row = parent.createEmptyMovieClip(name, depth);
+   row._x = x; row._y = y;
+   _root.mkText(row, "lbl", 1, 0, 0, w - 130, 20,
+      "<font face='$EverywhereBoldFont' size='14' color='#ECE6DA'>" + op.label + "</font>");
+   var bt = (op.bartext == undefined || op.bartext == "undefined") ? "" : op.bartext;
+   var val = _root.mkText(row, "val", 2, w - 130, 1, 130, 20,
+      "<p align='right'><font face='$EverywhereFont' size='13' color='#9C9486'>" + bt + "</font></p>");
+   var barH = 14;
+   var bar = row.createEmptyMovieClip("bar", 3);
+   bar._y = 24;
+   var frac = Number(op.fill);
+   if (!(frac >= 0)) { frac = 0; }
+   if (frac > 1) { frac = 1; }
+   _root.paintBar(bar, frac, w, barH, color);
+   if (!_root.HAG_BARS) { _root.HAG_BARS = new Array(); }
+   var rec = new Object();
+   rec.bar = bar; rec.val = val; rec.i = op.pageIdx; rec.j = op.optIdx; rec.w = w; rec.h = barH; rec.color = color;
+   _root.HAG_BARS.push(rec);
+   return row;
+}
+// Called by C++ (OptionRender::UpdateLive) every menu tick — cheap: just resizes the fill + text.
+function HagUpdateBars()
+{
+   if (!_root.HAG_BARS) { return; }
+   var k = 0;
+   while (k < _root.HAG_BARS.length)
+   {
+      var rec = _root.HAG_BARS[k];
+      var frac = Number(_root["hagPage" + rec.i + "_opt" + rec.j + "_fill"]);
+      if (!(frac >= 0)) { frac = 0; }
+      if (frac > 1) { frac = 1; }
+      _root.paintBar(rec.bar, frac, rec.w, rec.h, rec.color);
+      var t = _root["hagPage" + rec.i + "_opt" + rec.j + "_bartext"];
+      if (t != undefined)
+      {
+         rec.val.htmlText = "<p align='right'><font face='$EverywhereFont' size='13' color='#9C9486'>" + t + "</font></p>";
+      }
+      k = k + 1;
+   }
+}
+// ---- Model3D widget (type 6): a framed panel that will host the img://hagCharModel virtual-image
+// texture HagUI renders the player into (Route A). Until the render-to-texture is wired, it shows the
+// framed placeholder; loadMovie("img://hagCharModel") is enabled once the texture is registered. ----
+function buildModel3D(parent, name, depth, x, y, w, h, op)
+{
+   var m = parent.createEmptyMovieClip(name, depth);
+   m.lineStyle(1, 0xE0B34A, 30, true, "none", "round", "round");
+   m.beginFill(0x0A0A0C, 92);
+   _root.rrPath(m, x, y, w, h, 10);
+   m.endFill();
+   var img = m.createEmptyMovieClip("img", 2);
+   img._x = x; img._y = y;
+   if (_root.hagModelReady) { img.loadMovie("img://hagCharModel"); }
+   _root.mkText(m, "hint", 3, x, y + h / 2 - 14, w, 28,
+      "<p align='center'><font face='$EverywhereFont' size='14' color='#6B6456'>" + op.label + "</font></p>");
+   return m;
+}
 function buildOptionPage(c, x, y, w, pageIdx)
 {
    var pg = _root.HAG_PAGES[pageIdx];
    if (!pg) { return; }
+   _root.HAG_BARS = new Array();   // reset the live-bar registry for this page render
    _root.mkText(c, "hd", 1, x, y, w, 26,
       "<font face='$EverywhereBoldFont' size='21' color='#ECE6DA'>" + pg.title + "</font>");
-   var rowY = y + 44;
+   var topY = y + 44;
+
+   // a Model3D widget (type 6) switches the page to a 2-column layout: model left, other widgets right
+   var modelIdx = -1;
+   var k = 0;
+   while (k < pg.opts.length) { if (pg.opts[k].type == 6) { modelIdx = k; break; } k = k + 1; }
+   var colX = x;
+   var colW = w;
+   if (modelIdx >= 0)
+   {
+      var leftW = Math.round(w * 0.42);
+      _root.buildModel3D(c, "model", 8, x, topY, leftW, 360, pg.opts[modelIdx]);
+      colX = x + leftW + 28;
+      colW = w - leftW - 28;
+   }
+
+   var rowY = topY;
    var i = 0;
+   var depth = 10;
    while (i < pg.opts.length)
    {
       var op = pg.opts[i];
-      if (op.type == 0)   // 0 == Toggle -> checkbox row (other control types added later)
+      if (op.type == 0)          // Toggle -> checkbox row
       {
-         _root.makeCheckbox(c, "row" + i, 10 + i * 2, x, rowY, w, op);
+         _root.makeCheckbox(c, "row" + i, depth, colX, rowY, colW, op);
          rowY = rowY + 40;
       }
+      else if (op.type == 5)     // ProgressBar
+      {
+         _root.buildProgressBar(c, "bar" + i, depth, colX, rowY, colW, op);
+         rowY = rowY + 52;
+      }
+      // type 6 (Model3D) is already placed in the left column above
+      depth = depth + 2;
       i = i + 1;
    }
 }
@@ -303,6 +408,10 @@ function HagBuildPages()
          op.enabled = (en == undefined) ? 1 : (Number(en) != 0 ? 1 : 0);   // default enabled if absent
          var nt = _root["hagPage" + i + "_opt" + j + "_note"];
          op.note = (nt == undefined) ? "" : String(nt);
+         op.color = Number(_root["hagPage" + i + "_opt" + j + "_color"]);      // ProgressBar fill colour
+         op.fill  = Number(_root["hagPage" + i + "_opt" + j + "_fill"]);       // ProgressBar 0..1
+         var btx  = _root["hagPage" + i + "_opt" + j + "_bartext"];            // ProgressBar value text
+         op.bartext = (btx == undefined) ? "" : String(btx);
          op.pageIdx = i;
          op.optIdx = j;
          pg.opts.push(op);

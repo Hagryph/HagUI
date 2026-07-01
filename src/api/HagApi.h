@@ -19,11 +19,15 @@ enum class Scope { Global, PerSave };
 // Where a menu is being built — decides which scopes are visible.
 enum class MenuContext { MainMenu, InGame };
 
-enum class Control { Toggle, Slider, Stepper, Text, Button };
+enum class Control { Toggle, Slider, Stepper, Text, Button, ProgressBar, Model3D };
 
 using Value    = std::variant<bool, std::int64_t, double, std::string>;
 using ChangeFn = std::function<void(const Value&)>;
 using ClickFn  = std::function<void()>;
+
+// A ProgressBar reading, polled every menu tick (read-only display widget).
+struct BarSample { double frac = 0.0; std::string text; };  // frac 0..1, e.g. text "80 / 100"
+using SampleFn = std::function<BarSample()>;
 
 struct Option {
     std::string   id;
@@ -35,6 +39,9 @@ struct Option {
     std::uint32_t debounceMs = 0;                      // 0 = fire immediately
     bool          enabled = true;                      // false => greyed out + not clickable
     std::string   note;                                // small hint under the control (e.g. "applies after restart")
+    // --- read-only live widgets (ProgressBar / Model3D) ---
+    std::uint32_t color = 0xE0B34A;                    // ProgressBar fill colour (0xRRGGBB)
+    SampleFn      sample;                              // ProgressBar: polled each tick for frac + text
 };
 
 // Fluent page builder.
@@ -50,6 +57,9 @@ public:
     Page& Text(std::string id, std::string label, std::string initial, ChangeFn cb,
                std::uint32_t debounceMs = 300);
     Page& Button(std::string id, std::string label, ClickFn onClick);
+    // Read-only live widgets (no onChange): a progress bar polled each tick, and a 3D character view.
+    Page& ProgressBar(std::string id, std::string label, std::uint32_t color, SampleFn sample);
+    Page& Model3D(std::string id, std::string label);
 
     const std::string&         Title()   const { return m_title; }
     Scope                      GetScope() const { return m_scope; }

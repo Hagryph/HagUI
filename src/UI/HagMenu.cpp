@@ -50,7 +50,7 @@ namespace {
     void HagTick(void* self) {
         hag::api::HagUI::Get().PumpDebounce(::GetTickCount64());
         void* view = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
-        if (view) OptionRender::BuildIfNeeded(view);
+        if (view) { OptionRender::BuildIfNeeded(view); OptionRender::UpdateLive(view); }
         reinterpret_cast<void (*)(void*)>(offsets::FromRVA(offsets::kIMenuBase_6))(self);
     }
 

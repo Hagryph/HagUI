@@ -40,6 +40,21 @@ Page& Page::Button(std::string id, std::string label, ClickFn onClick) {
     return *this;
 }
 
+Page& Page::ProgressBar(std::string id, std::string label, std::uint32_t color, SampleFn sample) {
+    Option o;
+    o.id = std::move(id); o.label = std::move(label); o.control = Control::ProgressBar;
+    o.color = color; o.sample = std::move(sample);
+    m_options.push_back(std::move(o));
+    return *this;
+}
+
+Page& Page::Model3D(std::string id, std::string label) {
+    Option o;
+    o.id = std::move(id); o.label = std::move(label); o.control = Control::Model3D;
+    m_options.push_back(std::move(o));
+    return *this;
+}
+
 // ---- Host ----------------------------------------------------------------
 
 HagUI& HagUI::Get() {

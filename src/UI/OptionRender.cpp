@@ -100,8 +100,37 @@ void PushPages(void* view) {
             std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_value",   i, j); MSetNum(view, p, ValueToNum(o.value));
             std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_enabled", i, j); MSetNum(view, p, o.enabled ? 1.0 : 0.0);
             std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_note",    i, j); MSetStr(view, p, o.note.c_str());
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_color",   i, j); MSetNum(view, p, static_cast<double>(o.color));
+            // seed the live fields so the bar draws immediately (before the first UpdateLive tick)
+            if (o.control == Control::ProgressBar && o.sample) {
+                BarSample s = o.sample();
+                std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_fill",    i, j); MSetNum(view, p, s.frac);
+                std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_bartext", i, j); MSetStr(view, p, s.text.c_str());
+            }
         }
     }
+}
+
+// Per-tick live refresh: poll each ProgressBar's sample() and push fraction+text, then let the AS
+// resize the existing bar clips. Separate from PushPages (which is a full, rare rebuild). C++ objects
+// live here (not in the __try guard below) to satisfy MSVC's no-unwind-in-__try rule.
+void DoUpdateLive(void* view) {
+    auto pages = HagUI::Get().PagesFor(g_ctx);
+    char p[128];
+    bool any = false;
+    for (int i = 0; i < static_cast<int>(pages.size()); ++i) {
+        const auto& opts = pages[i]->Options();
+        for (int j = 0; j < static_cast<int>(opts.size()); ++j) {
+            const Option& o = opts[j];
+            if (o.control != Control::ProgressBar || !o.sample) continue;
+            BarSample s = o.sample();
+            double f = s.frac < 0.0 ? 0.0 : (s.frac > 1.0 ? 1.0 : s.frac);
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_fill",    i, j); MSetNum(view, p, f);
+            std::snprintf(p, sizeof p, "_root.hagPage%d_opt%d_bartext", i, j); MSetStr(view, p, s.text.c_str());
+            any = true;
+        }
+    }
+    if (any) MInvoke(view, "_root.HagUpdateBars");
 }
 
 }  // namespace
@@ -118,6 +147,14 @@ void OptionRender::BuildIfNeeded(void* view) {
         MInvoke(view, "_root.HagBuildPages");
         g_builtView = view;
         HAG_INFO("HagUI: (re)built option pages into movie {} (dirty={})", view, dirty);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+void OptionRender::UpdateLive(void* view) {
+    __try {
+        if (!view || view != g_builtView) return;         // only after a successful build
+        if (!MIsAvail(view, "_root.HagUpdateBars")) return;
+        DoUpdateLive(view);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 

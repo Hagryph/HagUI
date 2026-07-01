@@ -81,6 +81,26 @@ void C_SetToggleState(HagUI_PageHandle* page, const char* id, bool value, bool e
 
 void C_Refresh() { HagUI::Get().MarkDirty(); }
 
+// v3: wrap the C bar-sample callback into the internal SampleFn (copies the transient text each poll).
+SampleFn WrapBar(HagUI_BarCb cb, void* user) {
+    if (!cb) return {};
+    return [cb, user]() -> BarSample {
+        HagUI_BarSample s = cb(user);
+        return BarSample{ static_cast<double>(s.frac), s.text ? std::string(s.text) : std::string() };
+    };
+}
+
+void C_AddProgressBar(HagUI_PageHandle* page, const char* id, const char* label,
+                      std::uint32_t color, HagUI_BarCb sample, void* user) {
+    if (!page) return;
+    AsPage(page)->ProgressBar(id ? id : "", label ? label : "", color, WrapBar(sample, user));
+}
+
+void C_AddModel3D(HagUI_PageHandle* page, const char* id, const char* label) {
+    if (!page) return;
+    AsPage(page)->Model3D(id ? id : "", label ? label : "");
+}
+
 // The single interface table handed to every consumer (function addresses are
 // process-stable, so one shared const instance is correct).
 const HagUIAPI g_api = {
@@ -93,17 +113,22 @@ const HagUIAPI g_api = {
     &C_AddButton,
     &C_SetToggleState,
     &C_Refresh,
+    &C_AddProgressBar,   // v3
+    &C_AddModel3D,       // v3
 };
 
 }  // namespace
 
 // Undecorated export (extern "C" + x64 => the name is exactly "HagUI_GetAPI").
+// The ABI is strictly ADDITIVE (new function pointers appended), so a table built for vN is a superset
+// of every older layout: a consumer that asked for v<=N reads only its prefix, which is unchanged.
+// Therefore satisfy any request up to our version; only reject requests NEWER than we provide.
 extern "C" __declspec(dllexport) const HagUIAPI* HagUI_GetAPI(std::uint32_t abiVersion) {
-    if (abiVersion != HAGUI_ABI_VERSION) {
-        HAG_WARN("HagUI_GetAPI: unsupported ABI version {} (host provides {})",
+    if (abiVersion > HAGUI_ABI_VERSION) {
+        HAG_WARN("HagUI_GetAPI: consumer needs ABI v{} but host only provides v{} - update HagUI",
                  abiVersion, HAGUI_ABI_VERSION);
         return nullptr;
     }
-    HAG_INFO("HagUI_GetAPI: handed out option-page API v{}", HAGUI_ABI_VERSION);
+    HAG_INFO("HagUI_GetAPI: handed out option-page API v{} (consumer asked v{})", HAGUI_ABI_VERSION, abiVersion);
     return &g_api;
 }
