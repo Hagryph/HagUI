@@ -158,3 +158,90 @@ letter-spacing, glow on hover. Radius 10px (6px small).
 
 - CMake + vcpkg (`minhook`, `spdlog`), MSVC x64 → `HagUI.dll`.
 - `deploy.ps1` → `…/Skyrim Special Edition/Data/SKSE/Plugins/HagUI.dll` (+ `Data/Interface/HagUI.swf` if path A).
+
+## 10. Runtime, SkyUI-compatible menu-entry injection — RE findings & plan
+
+Motivation: shipping a modified `startmenu.swf`/`quest_journal.swf` **file** conflicts with any UI
+mod that replaces the same file (MO2 load order → one winner, no merge). Injecting the entry into
+the **live movie at runtime** works over *whatever* SWF loaded (vanilla, SkyUI, an overlay) → no
+file conflict. Chosen approach (2026-07-01).
+
+**Confirmed from `ghidra/ui_decomp5.txt` / `ui_decomp6.txt`:**
+- `MainMenu::RegisterFuncs` (0x941CC0) & `JournalMenu::RegisterFuncs` (0x994C10) are flat lists: per
+  callback `FUN_140fbb150(&name,"Name")` (GFx MakeString) → `param_2->vtable[1](param_2,&name,handler)`
+  → release the interned string (atomic dec refcount at `(name&~3)+8`; if 0, free via allocator
+  `vtable+0x60`). `param_2` is the shared **GameDelegate (FxDelegate)**. This is exactly what
+  `RegisterOpenHagUI` already does.
+- `JournalMenu::RegisterFuncs` registers RequestPlayerInfo/RememberCurrentTabIndex/PlaySound/
+  CloseMenu/ShouldShowMod/myLog on that one delegate. `SystemPage.as` (quest_journal) calls those
+  **and** the save/load ones through the SAME `gfx.io.GameDelegate`. ⇒ **our `OpenHagUI`, registered
+  on the journal delegate, is already reachable from the System page's AS.** The native click
+  *endpoint* exists; no SWF edit is needed for the click target.
+- **The gap:** the compiled `SystemPage.as` builds `entryList` (onLoad) and dispatches clicks by
+  positional `event.index` (`onCategoryButtonPress`). RegisterFuncs only supplies callbacks — it does
+  not add our row, nor make the AS call `OpenHagUI` for it.
+- **C++→AS surface exists:** `GFxValue::ObjectInterface` (HasMember/GetMember/SetMember/Invoke/
+  PushBack/GetArraySize/SetElement/AttachMovie/CreateEmptyMovieClip…) — method roster confirmed via
+  the AMP name table `FUN_1410c3ab0` (0x10C3AB0). `GFxMovieView::Invoke` = 0xFBFB10 → inner
+  `FUN_141021aa0`/`FUN_141009e10`, which marshal `GFxValue`s through the AS env (`movie+0x58`, interp
+  via `vtable+0xe0`, string intern `FUN_140fc87b0`, value build `FUN_140fcd600`). GFxValue **type
+  codes** (from the `FUN_140fcd600` switch): 2=bool, 3/4=number, 5=string, 6/7=object/displayobj.
+
+**Plan (all runtime; no SWF file shipped):**
+1. **Trigger/timing** — inject *after* `SystemPage.onLoad` builds `entryList` (RegisterFuncs is too
+   early). Either hook a per-frame/advance and inject once `GetVariable("…entryList")` resolves, or
+   register a native GameDelegate callback the page calls post-build and inject there.
+2. **Insert row** — `GetVariable` the `CategoryList.entryList` GFxValue; build an object GFxValue
+   (`SetMember "text"="HagUI"`, `"hagui"=true`); insert via ObjectInterface `PushBack`/element ops.
+3. **Wire click** — cleanest: wrap `onCategoryButtonPress` with a native function (GetMember original
+   → SetMember a native wrapper that routes `entry.hagui → OpenHagUI`, fixes the shifted index, else
+   calls the saved original). Alt: add a native-scope `itemPress` listener via the delegate.
+
+**Remaining RE before coding:** `GFxValue` struct layout; ObjectInterface method addresses
+(SetMember/GetMember/PushBack/GetArraySize); `CreateFunction` (how `movie->vtable[1]` builds the
+native fn value); FxDelegate/CLIK `dispatchEvent`. Then build + **hotload-iterate** (close game to
+rebuild the DLL; load a save; open System). The current modified-SWF build stays as the working
+fallback until the runtime path is validated in-game.
+
+### 10a. VALIDATED live (2026-07-01) via HagIPC call/read/write into the running game
+
+Phase 1 (row appears via pure runtime injection) is **confirmed in-game**: a `{text:"HagUI"}` row
+was appended to the open System menu's live list from outside the process, no SWF touched, no crash.
+
+**GFxValue** (size 0x18): `+0x00 ObjectInterface*` · `+0x08 Type` (VT_Object=6, VT_String=4,
+VT_DisplayObject=8; `|0x40`=managed) · `+0x10 value/handle`. **Always zero the out-buffer before
+Create*/GetVariable** — they release the old value first and choke on garbage.
+
+**GFxMovieView vtable slots** (byte offsets; call `(*(*movie+slot))(movie,…)`), all confirmed by
+decompiling the slot bodies (`ui_decompA/B.txt`) + live calls:
+| slot | method | ABI |
+|------|--------|-----|
+| +0x50 | IsAvailable | `(movie, const char* path)` → bool |
+| +0x58 | CreateString | `(movie, GFxValue* out, const char* cstr)` |
+| +0x68 | CreateObject | `(movie, GFxValue* out, const char* className=0, GFxValue* args=0, uint nargs=0)` |
+| +0x70 | CreateArray | `(movie, GFxValue* out)` |
+| +0x78 | CreateFunction | `(movie, GFxValue* out, GFxFunctionHandler* fh, void* userData)` ← native click |
+| +0x80 | SetVariable | `(movie, const char* path, GFxValue* val, int setType)`; setType 0 ⇒ create **leaf on existing parent** (NOT deep-vivify) |
+| +0x88 | GetVariable | `(movie, GFxValue* out, const char* path)` |
+| +0xa0 | GetVariableArraySize | `(movie, const char* path)` → int |
+| +0xb0 | Invoke | `(movie, path, GFxValue* resultOut/0, GFxValue* args/0)` |
+Standalone Invoke = `FUN_140fbfb10(movie, path, args/0)` (RVA 0xFBFB10) — proven no-arg form.
+
+**Open-menu stack** (to get a menu's live movie with no instance global): `mgr = *(0x20F6A00)`;
+array `*(mgr+0x110)`, count `*(mgr+0x120)` (int), entries are `IMenu*`; per IMenu `+0x00`=vtable,
+`+0x10`=GFxMovieView, `+0x18`=depth(u8), `+0x1c`=flags. Match `JournalMenu` by vtable RVA `0x190AF38`
+(MainMenu `0x18FC980`). Scratch memory: game menu-allocator `*(0x3292490)`, `Allocate` at its
+`vtable+0x50` `(alloc, size, align)`.
+
+**entryList AS path** (System page): `_root.QuestJournalFader.Menu_mc.SystemFader.Page_mc.CategoryList_mc.List_mc.entryList`
+(== live `EntriesA`). Refresh via Invoke `…List_mc.InvalidateData` (no args).
+
+**Injection recipe (validated):** GetVariableArraySize→N · zero+CreateObject→obj ·
+SetVariable(`…entryList.N`, obj, 0) · CreateString "HagUI"→str · SetVariable(`…entryList.N.text`,
+str, 0) · Invoke `…InvalidateData`. Result: arraySize 10→11, row visible. All from
+`scratchpad/inject_journal.ps1`.
+
+**Phase 2 (click) — native only.** Dispatch is positional; our appended index hits vanilla
+`onCategoryButtonPress`'s `default` (harmless), so the click needs a real `GFxFunctionHandler`
+attached as the list's `itemPress` listener (CreateFunction +0x78). That persistent C++ object must
+live in HagUI.dll — build it there (native, main-thread, correct timing), replacing the SWF edit.

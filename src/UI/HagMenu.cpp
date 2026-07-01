@@ -79,7 +79,8 @@ namespace {
     using RegFuncsFn = void (*)(void* self, void* movie);
     using MakeStrFn  = void (*)(void* gfxStringOut, const char* str);
     using RegCBFn    = void (*)(void* movie, void* gfxName, void* handler);  // movie->vtable[1]
-    RegFuncsFn g_origRegisterFuncs = nullptr;
+    RegFuncsFn g_origRegisterFuncs        = nullptr;  // MainMenu::RegisterFuncs
+    RegFuncsFn g_origJournalRegisterFuncs = nullptr;  // JournalMenu::RegisterFuncs (in-game System menu)
 
     // GFx FunctionHandler ABI: called with a Params* in rcx, returns void. We ignore the
     // args (no params needed to open) — the same shape that worked when we hooked the
@@ -89,19 +90,17 @@ namespace {
         HagMenu::Open();
     }
 
-    void Detour_RegisterFuncs(void* self, void* movie) {
-        g_origRegisterFuncs(self, movie);                 // register the real main-menu callbacks first
-        if (!movie) { HAG_WARN("RegisterFuncs: null movie - cannot add OpenHagUI"); return; }
-
-        // Mirror the game's per-callback sequence (ui_mainmenu.txt:466-474):
-        //   FUN_140fbb150(&name,"OpenHagUI"); movie->vtable[1](movie,&name,handler); release(name);
+    // Register the "OpenHagUI" GameDelegate callback on a menu's movie so its SWF can fire
+    // gfx.io.GameDelegate.call("OpenHagUI") to open our panel. Mirrors the game's per-callback
+    // sequence: FUN_140fbb150(&name,"OpenHagUI"); movie->vtable[1](movie,&name,handler); release(name).
+    void RegisterOpenHagUI(void* movie) {
+        if (!movie) { HAG_WARN("RegisterOpenHagUI: null movie"); return; }
         std::uint64_t name = 0;
         reinterpret_cast<MakeStrFn>(offsets::FromRVA(offsets::kGFx_MakeString))(&name, "OpenHagUI");
         void** mvt = *reinterpret_cast<void***>(movie);
         reinterpret_cast<RegCBFn>(mvt[offsets::kGFxMovie_RegisterCB])(
             movie, &name, reinterpret_cast<void*>(&Hag_OpenHandler));
-        // drop our reference to the managed GFx string (atomic refcount at (ptr&~3)+8)
-        if (name) {
+        if (name) {  // drop our ref to the managed GFx string (atomic refcount at (ptr&~3)+8)
             auto* rc = reinterpret_cast<volatile long*>((name & ~3ull) + 8);
             if (_InterlockedDecrement(rc) == 0) {
                 void* a = Allocator();
@@ -109,7 +108,16 @@ namespace {
                     a, reinterpret_cast<void*>(name & ~3ull));
             }
         }
-        HAG_INFO("HagUIMenu: registered 'OpenHagUI' GameDelegate callback (movie={})", movie);
+        HAG_INFO("HagUIMenu: registered 'OpenHagUI' on movie={}", movie);
+    }
+
+    void Detour_RegisterFuncs(void* self, void* movie) {          // Main Menu (button above Credits)
+        g_origRegisterFuncs(self, movie);
+        RegisterOpenHagUI(movie);
+    }
+    void Detour_JournalRegisterFuncs(void* self, void* movie) {   // in-game System menu (entry above Installed Content)
+        g_origJournalRegisterFuncs(self, movie);
+        RegisterOpenHagUI(movie);
     }
 
     // --- close-trigger: HagUI's own SWF calls gfx.io.GameDelegate.call("CloseHagUI") on ESC/click ---
@@ -235,14 +243,23 @@ void HagMenu::Register() {
 }
 
 void HagMenu::InstallTrigger() {
-    // Hook MainMenu::RegisterFuncs so we can add our "OpenHagUI" GameDelegate callback
-    // alongside the game's own. Credits is left untouched and works normally.
-    const auto target = offsets::FromRVA(offsets::kMainMenu_RegisterFuncs);
-    if (Hooking::Create<RegFuncsFn>(target, &Detour_RegisterFuncs, g_origRegisterFuncs)) {
-        HAG_INFO("HagUIMenu: hooked MainMenu::RegisterFuncs @{:#x} (adds OpenHagUI)", target);
-    } else {
+    // Hook each menu's RegisterFuncs so we can register our "OpenHagUI" GameDelegate callback
+    // alongside the game's own. The menus' own SWF entries (main-menu button; System-page entry)
+    // fire it. The rest of each menu is untouched and works normally.
+    const auto mm = offsets::FromRVA(offsets::kMainMenu_RegisterFuncs);
+    if (Hooking::Create<RegFuncsFn>(mm, &Detour_RegisterFuncs, g_origRegisterFuncs))
+        HAG_INFO("HagUIMenu: hooked MainMenu::RegisterFuncs @{:#x} (adds OpenHagUI)", mm);
+    else
         HAG_ERR("HagUIMenu: failed to hook MainMenu::RegisterFuncs");
-    }
+
+    const auto jm = offsets::FromRVA(offsets::kJournalMenu_RegisterFuncs);
+    if (Hooking::Create<RegFuncsFn>(jm, &Detour_JournalRegisterFuncs, g_origJournalRegisterFuncs))
+        HAG_INFO("HagUIMenu: hooked JournalMenu::RegisterFuncs @{:#x} (adds OpenHagUI in-game)", jm);
+    else
+        HAG_ERR("HagUIMenu: failed to hook JournalMenu::RegisterFuncs");
+
+    // Runtime, SkyUI-compatible System-menu entry: inject the row into the live movie (no SWF edit).
+    InstallSystemInject();
 }
 
 }  // namespace hag::ui
