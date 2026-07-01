@@ -156,6 +156,46 @@ void Detour_JournalAdvance(void* self) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+// --- grey-out fix ---------------------------------------------------------------------------------
+// The System page greys rows by calling GameDelegate.call("SetSaveDisabled",[entryList[0..],BOOL]) with
+// hard-coded indices; the native handler (SetSaveDisabled, 0x98edb0) computes each slot's disabled
+// state from game save-state and writes .disabled onto the PASSED entry objects. Our insert at
+// kInsertAt shifts every entry below it, so the AS hands the handler the wrong objects. We hook the
+// handler and, before it runs, rewrite each entry arg whose live index is >= our row to the entry one
+// slot lower (the one the AS actually meant, which our insert pushed down). The handler's per-slot
+// state computation is left completely intact; we only fix which object sits in each arg slot.
+// The 6 entry args live at *(params+0x28) as consecutive 0x18 GFxValues; arg[6] is the bool.
+using SsdFn = void (*)(void* params);
+SsdFn g_origSsd = nullptr;
+void Detour_SetSaveDisabled(void* params) {
+    __try {
+        void* m = g_movie;
+        if (m && g_index >= 0 && params) {
+            char* args = *reinterpret_cast<char**>(reinterpret_cast<char*>(params) + 0x28);
+            if (args) {
+                char lp[288], p[288];
+                std::snprintf(lp, sizeof lp, "%s.entryList", kList);
+                const int n = MArrSize(m, lp);
+                for (int a = 0; a < 6; ++a) {                       // 6 entry objects (arg[6] = bool)
+                    GFxValue* arg = reinterpret_cast<GFxValue*>(args + a * 0x18);
+                    if (!arg->value) continue;
+                    int idx = -1;                                  // find this entry's live index
+                    for (int k = g_index; k < n; ++k) {            // <g_index rows never shift -> skip
+                        GFxValue e{}; std::snprintf(p, sizeof p, "%s.entryList.%d", kList, k); MGetVar(m, &e, p);
+                        if (e.value == arg->value) { idx = k; break; }
+                    }
+                    if (idx >= g_index && idx + 1 < n) {           // shift to the entry the AS meant
+                        GFxValue corrected{}; std::snprintf(p, sizeof p, "%s.entryList.%d", kList, idx + 1); MGetVar(m, &corrected, p);
+                        if (corrected.value) { std::memcpy(arg, &corrected, sizeof(GFxValue));
+                            HAG_INFO("SetSaveDisabled arg{}: entry {} -> {} (grey-out shift fix)", a, idx, idx + 1); }
+                    }
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (g_origSsd) g_origSsd(params);
+}
+
 }  // namespace
 
 // Hook JournalMenu::AdvanceMovie so the row is injected on the main thread once the System page's
@@ -166,6 +206,12 @@ void InstallSystemInject() {
         HAG_INFO("HagUI: hooked JournalMenu::AdvanceMovie @{:#x} (runtime System-menu injection)", adv);
     else
         HAG_ERR("HagUI: failed to hook JournalMenu::AdvanceMovie");
+
+    const auto ssd = offsets::FromRVA(offsets::kSetSaveDisabled);
+    if (Hooking::Create<SsdFn>(ssd, &Detour_SetSaveDisabled, g_origSsd))
+        HAG_INFO("HagUI: hooked SetSaveDisabled @{:#x} (grey-out shift fix)", ssd);
+    else
+        HAG_ERR("HagUI: failed to hook SetSaveDisabled");
 }
 
 }  // namespace hag::ui

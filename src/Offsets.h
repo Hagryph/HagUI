@@ -50,6 +50,7 @@ inline constexpr auto kJournalMenu_Create        = game::ui::JournalMenu_Create;
 inline constexpr auto kJournalMenu_vtable        = game::ui::JournalMenu_vtable;
 inline constexpr auto kJournalMenu_RegisterFuncs = game::ui::JournalMenu_RegisterFuncs;
 inline constexpr auto kJournalMenu_AdvanceMovie  = game::ui::JournalMenu_AdvanceMovie;
+inline constexpr auto kSetSaveDisabled           = game::ui::SystemPage_SetSaveDisabled;
 // GFxMovieView method vtable byte-offsets (for live System-menu injection)
 inline constexpr auto kMovie_IsAvailable          = game::ui::movie::IsAvailable;
 inline constexpr auto kMovie_CreateString         = game::ui::movie::CreateString;
