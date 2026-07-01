@@ -59,18 +59,10 @@ bool DoEnsure() {
     ID3D11Device* dev = Device();
     if (!dev) { HAG_WARN("Model3D: D3D device null"); return false; }
 
-    // 1) a solid gold->dark vertical gradient (proves the pixels are OURS). R8G8B8A8_UNORM byte order
-    //    R,G,B,A => little-endian u32 = 0xAABBGGRR.
-    std::vector<std::uint32_t> px(static_cast<std::size_t>(kW) * kH);
-    for (int y = 0; y < kH; ++y) {
-        const float t = static_cast<float>(y) / kH;
-        const float k = 1.0f - t * 0.82f;
-        const std::uint8_t r = static_cast<std::uint8_t>(0xE0 * k);
-        const std::uint8_t g = static_cast<std::uint8_t>(0xB3 * k);
-        const std::uint8_t b = static_cast<std::uint8_t>(0x4A * k);
-        const std::uint32_t rgba = 0xFF000000u | (b << 16) | (g << 8) | r;
-        for (int x = 0; x < kW; ++x) px[static_cast<std::size_t>(y) * kW + x] = rgba;
-    }
+    // 1) a clean flat near-black backdrop (#0A0A0C). This is just the initial contents; Stage 2 clears
+    //    + renders the model into this same texture each frame. R8G8B8A8_UNORM => u32 = 0xAABBGGRR.
+    const std::uint32_t kBackdrop = 0xFF0C0A0Au;   // opaque #0A0A0C
+    std::vector<std::uint32_t> px(static_cast<std::size_t>(kW) * kH, kBackdrop);
 
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = kW; desc.Height = kH; desc.MipLevels = 1; desc.ArraySize = 1;

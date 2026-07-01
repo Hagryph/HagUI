@@ -49,6 +49,26 @@ The AS loads `img://BGSUserIcon`; native builds a named virtual-image entry + a 
 - Player live 3D: `Actor::Get3D` / `GetNiRootNode(0)` (RVA TBD) on player `*(0x31874F8)` (see game::actor).
 - Static/plant/weapon: the inventory path already loads ANY `TESBoundObject`'s model by form — reuse it.
 
+## Stage 1 DONE (img:// binding proven in-game)
+Create a D3D texture (`RENDER_TARGET|SHADER_RESOURCE`, R8G8B8A8) via `*(0x3286A10)`, build the 0x28-byte
+BSGraphics::Texture wrapper (tex@0, SRV@0x10, h@0x18, w@0x1a, one@0x1c, fmt@0x1d), `entry = FUN_140d2f140(&name)`,
+`entry+0x48 = &wrapper`, then **`FUN_140faf5e0(slot, entry)`** (the missing register step — inserts
+name->image into `scaleformMgr->imageLoader+0x20`; without it img:// returns the rainbow placeholder).
+SWF `loadClip("img://hagCharModel")` then shows it. Implemented in `src/UI/Model3D.cpp`.
+
+## Stage 2 anchors (render the model — reuse engine, WIP)
+- Attach/position/scale a loaded model node into the manager scene: `FUN_1409281a0(mgr, form, ?, &node)`
+  — sets node local transform (+0x48..+0x68), `FUN_140e87270(node,4,1,0,1)`, `FUN_140928450(mgr,&node)`
+  (scene attach), `FUN_1409736c0(DAT_143187780, node, mgr+0x34)` (render/camera register — `DAT_143187780`
+  is the menu-3D render manager), `FUN_140928ed0(mgr+0x60, form, ?, &node, camIdx, ...)`.
+- Finalize/draw: `FUN_140928700(mgr, form, ?)` -> `FUN_1402efb80(mgr+0x38, node, form, ...)` + `FUN_14015b1d0`.
+- `mgr+0x38` = a subsystem (used for rotation too); `mgr+0x34` = camera index; `mgr+0x60/+0x68` loadedModels.
+- STILL TBD: the render target the menu-3D scene draws to (to bind as img:// instead of our own texture),
+  the NiCamera, and the per-frame render trigger (needs the render thread). Options: (a) bind the engine
+  menu-3D RT's SRV as img://hagCharModel and drive `UpdateItem3D`; (b) create an RTV on our texture and
+  render the node ourselves via the engine scene-render on a render-thread hook. Actor `Get3D` RVA TBD
+  (player live 3D for form 0x14).
+
 ## Roadmap (staged, each hot-load-verified)
 1. **Prove img://**: create a RT texture via `*(0x3286A10)`, wrap it, `FUN_140d2f140`-register as
    `hagCharModel`, resolve+call the loader register, clear it to a solid colour, `loadMovie("img://hagCharModel")`
