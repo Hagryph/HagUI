@@ -7,24 +7,32 @@
 #include <cstdio>
 #include <cstring>
 
-// Runtime, SkyUI-compatible injection of a "HagUI" row into the in-game System (pause) menu.
+// Runtime, SkyUI-compatible "HagUI" entry in BOTH the Main Menu and the in-game System (pause) menu.
 //
-// No SWF file is shipped or edited: we drive the LIVE quest_journal movie through the game's own
-// Scaleform GFxMovieView API and hang a native GFxFunctionHandler off the list's itemPress event --
-// exactly how the game wires its own entries. Because nothing on disk is replaced, this coexists
-// with SkyUI and any other UI overhaul (they can ship their own quest_journal.swf; we inject into
-// whatever movie loaded). Every offset/ABI here was validated live via HagIPC (docs/UI-RE.md §10a).
+// No SWF file is shipped or edited. We drive the LIVE movies through the game's own Scaleform GFx API.
+// The KEY design (2026-07-01, rev 2): rather than splice a row and then patch positional dispatch with
+// an index-rewrite hack, we HOOK THE ACTIONSCRIPT ITSELF. Each menu's list dispatches item clicks
+// through one AS handler method (StartMenu.onMainButtonPress / SystemPage.onCategoryButtonPress). We
+// TRAMPOLINE that method: replace it on the AS object with a native GFxFunctionHandler, keep the
+// original stashed under a sibling member, and forward every non-HagUI press to the original via
+// GFxMovieView::Invoke(args) (movie vtable +0xB8). So the game's own dispatch runs for vanilla rows and
+// we own only our row -- no shared-event mutation, no listener-order dependency, mouse == keyboard.
+//   * Main menu dispatches by CARRIED entry.index -> our row {index:90} needs no positional fix-up.
+//   * System menu dispatches by POSITIONAL event.index -> we correct it by exactly our one inserted row
+//     before forwarding (the game sees the pre-insert position it expects).
+// Every offset/ABI here was recovered in Ghidra and validated live via HagIPC (docs/UI-RE.md §10/§11).
 namespace hag::ui {
 namespace {
 
 using namespace hag::offsets;
 
-// Scaleform GFxValue (0x18). MUST be zeroed before Create*/GetVariable: those release the prior
-// value first, so uninitialised bytes make them free garbage (observed live).
+// Scaleform GFxValue (0x18). MUST be zeroed before Create*/GetVariable: those release the prior value
+// first, so uninitialised bytes make them free garbage (observed live). type at +0x08 (0 == undefined).
 struct GFxValue { void* objIface; std::uint32_t type; std::uint32_t typeHi; std::uint64_t value; };
 static_assert(sizeof(GFxValue) == 0x18, "GFxValue must be 0x18");
 
-// GFxFunctionHandler::Params (recovered from FUN_140fac280) -- we don't read from it.
+// GFxFunctionHandler::Params (from FUN_140fac280): +0x00 ret, +0x08 movie, +0x10 self, +0x18 argsThis,
+// +0x20 args (GFxValue* to the arg array), +0x28 argc(int), +0x30 userData. args[0] is the first AS arg.
 struct FnParams { GFxValue* ret; void* movie; GFxValue* self; GFxValue* argsThis; GFxValue* args; int argc; int pad; void* userData; };
 
 // --- GFxMovieView method thunks: (*(*(void***)movie))[slot/8](movie, ...) ---
@@ -39,157 +47,250 @@ inline char MSetVar  (void* m, const char* p, GFxValue* v)  { return reinterpret
 inline char MSetNum  (void* m, const char* p, double d)     { GFxValue v{}; v.type = 3; std::memcpy(&v.value, &d, sizeof d); return MSetVar(m, p, &v); }  // 3 = VT_Number
 inline int  MGetNum  (void* m, const char* p)               { GFxValue v{}; MGetVar(m, &v, p); double d = 0; std::memcpy(&d, &v.value, sizeof d); return static_cast<int>(d); }
 inline void MSetBool (void* m, const char* p, bool b)       { GFxValue v{}; v.type = 2; v.value = b ? 1 : 0; MSetVar(m, p, &v); }  // 2 = VT_Boolean
-inline void MInvoke  (void* m, const char* p)               { reinterpret_cast<char(*)(void*, const char*, void*)>(FromRVA(kGFxMovie_Invoke))(m, p, nullptr); }
+inline void MInvoke  (void* m, const char* p)               { reinterpret_cast<char(*)(void*, const char*, void*)>(FromRVA(kGFxMovie_Invoke))(m, p, nullptr); }  // parsed, no-arg (InvalidateData)
+// Invoke AS function by path, forwarding a GFxValue ARRAY (movie vtable +0xB8): passes real objects.
+inline void MInvokeArgs(void* m, const char* p, GFxValue* args, int argc) {
+    reinterpret_cast<void(*)(void*, const char*, void*, GFxValue*, int)>(Slot(m, kMovie_InvokeArgs))(m, p, nullptr, args, argc);
+}
 
-constexpr int kInsertAt = 3;   // list slot for our row: directly below "Load" (0=QuickSave,1=Save,2=Load)
-
-// AS path to the System page's category list (verified from the SWF placement tree, docs/UI-RE.md §10).
-constexpr const char* kList = "_root.QuestJournalFader.Menu_mc.SystemFader.Page_mc.CategoryList_mc.List_mc";
-
-// --- native click handler: a GFxFunctionHandler whose Call is vtable slot 1 (FUN_140fac280) ---
+// --- native GFxFunctionHandler: Call is vtable slot 1 (invoked by FUN_140fac280) ---
 struct HagHandler { void** vtbl; std::int32_t refCount; std::int32_t pad; };
 void* HandlerDtor(HagHandler* self, unsigned) { return self; }   // never runs: refCount pinned high
-void  HandlerCall(HagHandler* self, FnParams* params);
-void** HandlerVtbl() {
-    static void* vt[8] = {};
-    if (!vt[1]) {
-        for (auto& s : vt) s = reinterpret_cast<void*>(&HandlerDtor);
-        vt[1] = reinterpret_cast<void*>(&HandlerCall);           // Call slot
-    }
-    return vt;
+using CallFn = void (*)(HagHandler*, FnParams*);
+void** MakeVtbl(CallFn call) {
+    // one 8-slot vtable per distinct Call; caller passes a static storage array.
+    return nullptr;  // (unused; each handler builds its own below)
 }
-HagHandler g_handler{ nullptr, 0x40000000, 0 };
-void* g_movie = nullptr;   // live journal GFxMovieView (refreshed every advance)
-int   g_index = -1;        // list index of our injected row
 
-// Runs FIRST on every itemPress (we insert ahead of the game's onCategoryButtonPress). Because our
-// row sits at kInsertAt, every row below it is shifted one slot; the game dispatches by positional
-// index, so we rewrite the *shared* event object's .index (objects are by-reference, so the game's
-// handler then sees the pre-shift slot) and open HagUI for our own row. This reproduces what the old
-// SWF edit did with `_loc3_ - 1`, but entirely at runtime.
-void HandlerCall(HagHandler*, FnParams* params) {
+// Trampoline an AS method: stash the original under `objPath.saveName` and install `nativeFn` as
+// `objPath.methodName`. Idempotent per-movie via the AS marker (survives menu reopen: a fresh movie has
+// no marker -> we re-own it). Returns true once ours is installed. Forwarding calls MInvokeArgs on the
+// saved original. `handler` must be a persistent HagHandler with its vtbl set.
+bool OwnMethod(void* movie, const char* objPath, const char* methodName, const char* saveName, HagHandler* handler) {
+    char save[288], meth[288];
+    std::snprintf(save, sizeof save, "%s.%s", objPath, saveName);
+    if (MIsAvail(movie, save)) return true;                       // already owned on this movie
+    std::snprintf(meth, sizeof meth, "%s.%s", objPath, methodName);
+    GFxValue orig{}; MGetVar(movie, &orig, meth);
+    if (orig.type == 0) { HAG_WARN("OwnMethod: {} unresolved (type 0) - cannot trampoline", meth); return false; }
+    if (!MSetVar(movie, save, &orig)) { HAG_WARN("OwnMethod: failed to stash {}", save); return false; }
+    GFxValue fn{}; MCreateFn(movie, &fn, handler);
+    if (!MSetVar(movie, meth, &fn)) { HAG_WARN("OwnMethod: failed to install {}", meth); return false; }
+    HAG_INFO("OwnMethod: trampolined {} (orig.type={:#x} stashed at {})", meth, orig.type, saveName);
+    return true;
+}
+
+constexpr int kHagIndex = 90;   // marker: entry.index (main) / entry.hagIndex (system) for our row
+
+// ================================================================================================
+// MAIN MENU  --  StartMenu.onMainButtonPress dispatches by CARRIED entry.index (no positional fix-up).
+// Hook FUN_140944900 (the sendMenuProperties driver): after it rebuilds MainList.entryList, (re)insert
+// our row above Credits and own onMainButtonPress. setupMainMenu ClearList()s each call, so we always
+// re-insert; the method trampoline persists (it's on the StartMenu instance, not the wiped list).
+// ================================================================================================
+constexpr const char* kStartMenu = "_root.MenuHolder.Menu_mc";
+constexpr const char* kMainList  = "_root.MenuHolder.Menu_mc.MainListHolder.List_mc";
+constexpr int kCreditsIndex = 8;    // StartMenu.CREDITS_INDEX -- we insert directly above it
+
+void* g_mainMovie = nullptr;
+HagHandler g_mainHandler{ nullptr, 0x40000000, 0 };
+
+void MainPress(HagHandler*, FnParams* params) {
     __try {
-        void* m = g_movie;
+        void* m = g_mainMovie;
         if (!m || !params || params->argc < 1 || !params->args) return;
-        // Bind the event object to a temp path so we can read/rewrite .index by reference.
-        char evt[256], idxp[256];
-        std::snprintf(evt, sizeof evt, "%s.__hagEvt", kList);
-        MSetVar(m, evt, params->args);                    // params->args[0] == the itemPress event
-        std::snprintf(idxp, sizeof idxp, "%s.index", evt);
-        GFxValue v{}; MGetVar(m, &v, idxp);
-        double d = 0; std::memcpy(&d, &v.value, sizeof d);
-        const int i = static_cast<int>(d);
-        if (i == g_index) {
-            HAG_INFO("HagUI System-menu row clicked -> opening HagUI");
+        char evt[288], ip[320];
+        std::snprintf(evt, sizeof evt, "%s.__hagEvt", kMainList);
+        MSetVar(m, evt, params->args);                       // bind the itemPress event (by reference)
+        std::snprintf(ip, sizeof ip, "%s.entry.index", evt);
+        if (MGetNum(m, ip) == kHagIndex) {
+            HAG_INFO("HagUI main-menu row -> opening HagUI");
             HagMenu::Open();
-            MSetNum(m, idxp, 1.0e6);                       // out of range -> game's switch hits default (no-op)
-        } else if (i > g_index) {
-            MSetNum(m, idxp, static_cast<double>(i - 1));  // undo our insert's shift for rows below us
+            return;                                          // ours: do NOT forward (no vanilla cancel)
         }
-        // i < g_index (QuickSave/Save/Load): untouched
+        char fwd[320];                                       // vanilla row: forward to the real handler
+        std::snprintf(fwd, sizeof fwd, "%s.__hagOrigMain", kStartMenu);
+        MInvokeArgs(m, fwd, params->args, params->argc);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-// Append our row + attach the native listener, once per journal-movie session (a fresh journal open
-// gives a fresh List_mc, so the __hagInjected marker is naturally per-session).
-void InjectIfNeeded(void* movie) {
-    char p[256], flag[256];
-    std::snprintf(p, sizeof p, "%s.entryList", kList);
-    if (!MIsAvail(movie, p)) return;                 // System page not built yet (other tab / not open)
-    // Wait until the game has registered its OWN itemPress listener, i.e. _listeners.itemPress
-    // exists as an array. Injecting the instant entryList appears (a frame earlier) means our
-    // listener push lands on a not-yet-created array and is silently lost.
-    std::snprintf(p, sizeof p, "%s._listeners.itemPress", kList);
-    if (!MIsAvail(movie, p)) return;
-    std::snprintf(flag, sizeof flag, "%s.__hagInjected", kList);
-    if (MIsAvail(movie, flag)) return;               // already injected into this list
-
-    std::snprintf(p, sizeof p, "%s.entryList", kList);
-    int n = MArrSize(movie, p);
+void InjectMainMenu(void* movie) {
+    char p[320];
+    std::snprintf(p, sizeof p, "%s.entryList", kMainList);
+    if (!MIsAvail(movie, p)) return;                         // list not built yet
+    const int n = MArrSize(movie, p);
     if (n <= 0) return;
-    const int at = (n > kInsertAt) ? kInsertAt : n;   // directly below Load (guard: append if list is tiny)
 
-    // 1) splice {text:"HagUI"} in at 'at': shift entryList[at..n-1] up by one, then set entryList[at]
-    for (int i = n; i > at; --i) {
-        GFxValue tmp{};
-        std::snprintf(p, sizeof p, "%s.entryList.%d", kList, i - 1); MGetVar(movie, &tmp, p);
-        std::snprintf(p, sizeof p, "%s.entryList.%d", kList, i);     MSetVar(movie, p, &tmp);
+    // find our row (if still present after a rebuild) + Credits, in one pass
+    int hagPos = -1, credPos = -1;
+    for (int k = 0; k < n; ++k) {
+        std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, k);
+        const int iv = MGetNum(movie, p);
+        if (iv == kHagIndex && hagPos < 0) hagPos = k;
+        else if (iv == kCreditsIndex && credPos < 0) credPos = k;
     }
-    GFxValue obj{}; MCreateObj(movie, &obj);
-    std::snprintf(p, sizeof p, "%s.entryList.%d", kList, at);        MSetVar(movie, p, &obj);
-    GFxValue str{}; MCreateStr(movie, &str, "HagUI");
-    std::snprintf(p, sizeof p, "%s.entryList.%d.text", kList, at);   MSetVar(movie, p, &str);
-    g_index = at;
-
-    // 2) native function -> List_mc.__hagPress
-    if (!g_handler.vtbl) g_handler.vtbl = HandlerVtbl();
-    GFxValue fn{}; MCreateFn(movie, &fn, &g_handler);
-    std::snprintf(p, sizeof p, "%s.__hagPress", kList);             MSetVar(movie, p, &fn);
-
-    // 3) insert our itemPress listener at index 0 (must run BEFORE onCategoryButtonPress so our
-    //    index-rewrite is visible to it): shift existing listeners up, then set [0].
-    std::snprintf(p, sizeof p, "%s._listeners.itemPress", kList);
-    int ln = MArrSize(movie, p);
-    for (int i = ln; i > 0; --i) {
-        GFxValue tmp{};
-        std::snprintf(p, sizeof p, "%s._listeners.itemPress.%d", kList, i - 1); MGetVar(movie, &tmp, p);
-        std::snprintf(p, sizeof p, "%s._listeners.itemPress.%d", kList, i);     MSetVar(movie, p, &tmp);
+    if (hagPos < 0) {                                        // (re)insert {text,index:90} above Credits
+        const int at = (credPos >= 0) ? credPos : n;
+        for (int i = n; i > at; --i) {
+            GFxValue tmp{};
+            std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, i - 1); MGetVar(movie, &tmp, p);
+            std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, i);     MSetVar(movie, p, &tmp);
+        }
+        GFxValue obj{}; MCreateObj(movie, &obj);
+        std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, at);          MSetVar(movie, p, &obj);
+        GFxValue str{}; MCreateStr(movie, &str, "HagUI");
+        std::snprintf(p, sizeof p, "%s.entryList.%d.text", kMainList, at);     MSetVar(movie, p, &str);
+        std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, at);    MSetNum(movie, p, kHagIndex);
+        std::snprintf(p, sizeof p, "%s.entryList.%d.showIcon", kMainList, at); MSetBool(movie, p, false);
+        std::snprintf(p, sizeof p, "%s.InvalidateData", kMainList);           MInvoke(movie, p);
+        HAG_INFO("HagUI: inserted main-menu row above Credits (pos {})", at);
     }
-    GFxValue rec{}; MCreateObj(movie, &rec);
-    std::snprintf(p, sizeof p, "%s._listeners.itemPress.0", kList);                  MSetVar(movie, p, &rec);
-    GFxValue listMc{}; MGetVar(movie, &listMc, kList);
-    std::snprintf(p, sizeof p, "%s._listeners.itemPress.0.listenerObject", kList);   MSetVar(movie, p, &listMc);
-    GFxValue fname{}; MCreateStr(movie, &fname, "__hagPress");
-    std::snprintf(p, sizeof p, "%s._listeners.itemPress.0.listenerFunction", kList); MSetVar(movie, p, &fname);
+    if (!g_mainHandler.vtbl) {
+        static void* vt[8] = {};
+        for (auto& s : vt) s = reinterpret_cast<void*>(&HandlerDtor);
+        vt[1] = reinterpret_cast<void*>(static_cast<CallFn>(&MainPress));
+        g_mainHandler.vtbl = vt;
+    }
+    OwnMethod(movie, kStartMenu, "onMainButtonPress", "__hagOrigMain", &g_mainHandler);
+}
 
-    // 4) mark done + rebuild the visible list
-    GFxValue mark{}; MCreateStr(movie, &mark, "1");                  MSetVar(movie, flag, &mark);
-    std::snprintf(p, sizeof p, "%s.InvalidateData", kList);          MInvoke(movie, p);
-    HAG_INFO("HagUI: injected System-menu row at index {} + native click listener (SkyUI-safe)", n);
+using SetupFn = void (*)(void* self);
+SetupFn g_origMainSetup = nullptr;
+void Detour_MainSetup(void* self) {
+    g_origMainSetup(self);                                   // builds MainList via setupMainMenu
+    __try {
+        void* movie = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
+        if (movie) { g_mainMovie = movie; InjectMainMenu(movie); }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+// ================================================================================================
+// IN-GAME SYSTEM MENU  --  SystemPage.onCategoryButtonPress dispatches by POSITIONAL event.index.
+// We insert our row after Load and TRAMPOLINE onCategoryButtonPress: our row opens HagUI; any row after
+// ours is forwarded with event.index-1 so the game's own switch maps it to the correct vanilla action.
+// Trigger: JournalMenu::AdvanceMovie (one-shot per movie, gated by AS markers so it re-arms on reopen).
+// ================================================================================================
+constexpr const char* kSystemPage = "_root.QuestJournalFader.Menu_mc.SystemFader.Page_mc";
+constexpr const char* kSysList    = "_root.QuestJournalFader.Menu_mc.SystemFader.Page_mc.CategoryList_mc.List_mc";
+constexpr int kSysInsertAt = 3;     // directly below "Load" (onLoad pushes QuickSave,Save,Load first)
+
+void* g_sysMovie = nullptr;
+int   g_sysRow   = -1;              // cached array pos of our row (validated each dispatch)
+HagHandler g_sysHandler{ nullptr, 0x40000000, 0 };
+
+// Our row's current position (scan by the hagIndex marker; cache + revalidate). -1 if absent.
+int FindSysRow(void* m) {
+    char p[320];
+    if (g_sysRow >= 0) {
+        std::snprintf(p, sizeof p, "%s.entryList.%d.hagIndex", kSysList, g_sysRow);
+        if (MGetNum(m, p) == kHagIndex) return g_sysRow;
+    }
+    std::snprintf(p, sizeof p, "%s.entryList", kSysList);
+    const int n = MArrSize(m, p);
+    for (int k = 0; k < n; ++k) {
+        std::snprintf(p, sizeof p, "%s.entryList.%d.hagIndex", kSysList, k);
+        if (MGetNum(m, p) == kHagIndex) { g_sysRow = k; return k; }
+    }
+    g_sysRow = -1;
+    return -1;
+}
+
+void CatPress(HagHandler*, FnParams* params) {
+    __try {
+        void* m = g_sysMovie;
+        if (!m || !params || params->argc < 1 || !params->args) return;
+        char evt[288], q[320], fwd[320];
+        std::snprintf(evt, sizeof evt, "%s.__hagEvt", kSysList);
+        MSetVar(m, evt, params->args);                       // bind the itemPress event (by reference)
+        std::snprintf(q, sizeof q, "%s.entry.hagIndex", evt);
+        if (MGetNum(m, q) == kHagIndex) {
+            HAG_INFO("HagUI System-menu row -> opening HagUI");
+            HagMenu::Open();
+            return;                                          // ours: do NOT forward
+        }
+        const int row = FindSysRow(m);
+        std::snprintf(q, sizeof q, "%s.index", evt);
+        const int P = MGetNum(m, q);
+        if (row >= 0 && P > row) MSetNum(m, q, static_cast<double>(P - 1));  // undo our insert's shift
+        std::snprintf(fwd, sizeof fwd, "%s.__hagOrigCat", kSystemPage);
+        MInvokeArgs(m, fwd, params->args, params->argc);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+void SystemSetupIfNeeded(void* movie) {
+    char p[320];
+    std::snprintf(p, sizeof p, "%s.entryList", kSysList);
+    if (!MIsAvail(movie, p)) return;                         // System page not built yet
+    const int n = MArrSize(movie, p);
+    if (n <= 0) return;
+
+    // insert our row once per movie (marker-gated): after Load, shift up and set entryList[at]
+    if (FindSysRow(movie) < 0) {
+        const int at = (n > kSysInsertAt) ? kSysInsertAt : n;
+        for (int i = n; i > at; --i) {
+            GFxValue tmp{};
+            std::snprintf(p, sizeof p, "%s.entryList.%d", kSysList, i - 1); MGetVar(movie, &tmp, p);
+            std::snprintf(p, sizeof p, "%s.entryList.%d", kSysList, i);     MSetVar(movie, p, &tmp);
+        }
+        GFxValue obj{}; MCreateObj(movie, &obj);
+        std::snprintf(p, sizeof p, "%s.entryList.%d", kSysList, at);          MSetVar(movie, p, &obj);
+        GFxValue str{}; MCreateStr(movie, &str, "HagUI");
+        std::snprintf(p, sizeof p, "%s.entryList.%d.text", kSysList, at);     MSetVar(movie, p, &str);
+        std::snprintf(p, sizeof p, "%s.entryList.%d.hagIndex", kSysList, at); MSetNum(movie, p, kHagIndex);
+        g_sysRow = at;
+        std::snprintf(p, sizeof p, "%s.InvalidateData", kSysList);            MInvoke(movie, p);
+        HAG_INFO("HagUI: inserted System-menu row after Load (pos {})", at);
+    }
+
+    if (!g_sysHandler.vtbl) {
+        static void* vt[8] = {};
+        for (auto& s : vt) s = reinterpret_cast<void*>(&HandlerDtor);
+        vt[1] = reinterpret_cast<void*>(static_cast<CallFn>(&CatPress));
+        g_sysHandler.vtbl = vt;
+    }
+    OwnMethod(movie, kSystemPage, "onCategoryButtonPress", "__hagOrigCat", &g_sysHandler);
 }
 
 using AdvanceFn = void (*)(void*);
 AdvanceFn g_origAdvance = nullptr;
 void Detour_JournalAdvance(void* self) {
-    g_origAdvance(self);                                            // let the journal advance/render first
+    g_origAdvance(self);                                     // let the journal advance/render first
     __try {
         void* movie = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
-        if (movie) { g_movie = movie; InjectIfNeeded(movie); }
+        if (movie) { g_sysMovie = movie; SystemSetupIfNeeded(movie); }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
 // --- grey-out fix ---------------------------------------------------------------------------------
-// The System page greys rows by calling GameDelegate.call("SetSaveDisabled",[entryList[0..],BOOL]) with
-// hard-coded indices; the native handler (SetSaveDisabled, 0x98edb0) computes each slot's disabled
-// state from game save-state and writes .disabled onto the PASSED entry objects. Our insert at
-// kInsertAt shifts every entry below it, so the AS hands the handler the wrong objects. We hook the
-// handler and, before it runs, rewrite each entry arg whose live index is >= our row to the entry one
-// slot lower (the one the AS actually meant, which our insert pushed down). The handler's per-slot
-// state computation is left completely intact; we only fix which object sits in each arg slot.
-// The 6 entry args live at *(params+0x28) as consecutive 0x18 GFxValues; arg[6] is the bool.
+// UpdatePermissions/RefreshSystemButtons (AS) call GameDelegate.call("SetSaveDisabled",[entryList[0..],
+// BOOL]) with HARD-CODED positional indices; the native handler (0x98edb0) computes each slot's disabled
+// state and writes .disabled onto the PASSED entry objects. Our insert shifts every entry after our row,
+// so the AS hands the handler the wrong objects. We hook the handler and, before it runs, rewrite each
+// entry arg whose live index is > our row to the entry one slot lower (the one the AS meant). The 6 entry
+// args live at *(params+0x28) as consecutive 0x18 GFxValues; arg[6] is the bool. Left otherwise intact.
 using SsdFn = void (*)(void* params);
 SsdFn g_origSsd = nullptr;
 void Detour_SetSaveDisabled(void* params) {
     __try {
-        void* m = g_movie;
-        if (m && g_index >= 0 && params) {
+        void* m = g_sysMovie;
+        const int row = (m ? FindSysRow(m) : -1);
+        if (m && row >= 0 && params) {
             char* args = *reinterpret_cast<char**>(reinterpret_cast<char*>(params) + 0x28);
             if (args) {
-                char lp[288], p[288];
-                std::snprintf(lp, sizeof lp, "%s.entryList", kList);
+                char lp[320], p[320];
+                std::snprintf(lp, sizeof lp, "%s.entryList", kSysList);
                 const int n = MArrSize(m, lp);
-                for (int a = 0; a < 6; ++a) {                       // 6 entry objects (arg[6] = bool)
+                for (int a = 0; a < 6; ++a) {                // 6 entry objects (arg[6] = bool)
                     GFxValue* arg = reinterpret_cast<GFxValue*>(args + a * 0x18);
                     if (!arg->value) continue;
-                    int idx = -1;                                  // find this entry's live index
-                    for (int k = g_index; k < n; ++k) {            // <g_index rows never shift -> skip
-                        GFxValue e{}; std::snprintf(p, sizeof p, "%s.entryList.%d", kList, k); MGetVar(m, &e, p);
+                    int idx = -1;                            // find this entry's live index
+                    for (int k = row; k < n; ++k) {          // rows <= our row never shift -> skip
+                        GFxValue e{}; std::snprintf(p, sizeof p, "%s.entryList.%d", kSysList, k); MGetVar(m, &e, p);
                         if (e.value == arg->value) { idx = k; break; }
                     }
-                    if (idx >= g_index && idx + 1 < n) {           // shift to the entry the AS meant
-                        GFxValue corrected{}; std::snprintf(p, sizeof p, "%s.entryList.%d", kList, idx + 1); MGetVar(m, &corrected, p);
-                        if (corrected.value) { std::memcpy(arg, &corrected, sizeof(GFxValue));
-                            HAG_INFO("SetSaveDisabled arg{}: entry {} -> {} (grey-out shift fix)", a, idx, idx + 1); }
+                    if (idx > row && idx + 1 < n) {          // shift to the entry the AS meant
+                        GFxValue corrected{}; std::snprintf(p, sizeof p, "%s.entryList.%d", kSysList, idx + 1); MGetVar(m, &corrected, p);
+                        if (corrected.value) std::memcpy(arg, &corrected, sizeof(GFxValue));
                     }
                 }
             }
@@ -198,125 +299,22 @@ void Detour_SetSaveDisabled(void* params) {
     if (g_origSsd) g_origSsd(params);
 }
 
-// ================================================================================================
-// MAIN MENU injector — same runtime approach as the System menu, replacing the old modified
-// StartMenu.swf. The main-menu list (MainList) dispatches by entry-CARRIED index (switch(event.
-// entry.index)), NOT positional, so inserting a row does NOT shift anyone -- no re-index, no grey-out
-// concern. Our row carries index 90 (outside the vanilla 0..11 switch -> harmless default); our own
-// itemPress listener opens HagUI. The list is (re)built by setupMainMenu(), which may run more than
-// once, so we re-splice whenever our row goes missing.
-// ================================================================================================
-constexpr const char* kMainList  = "_root.MenuHolder.Menu_mc.MainListHolder.List_mc";
-constexpr int kMainHagIndex = 90;   // entry.index marker for our row (vanilla switch falls through)
-constexpr int kCreditsIndex = 8;    // StartMenu.CREDITS_INDEX -- we insert directly above Credits
-
-void* g_mainMovie = nullptr;
-int   g_mainRow   = -1;              // live array pos of our row (for the cheap presence check)
-
-void MainHandlerCall(HagHandler*, FnParams* params) {
-    __try {
-        void* m = g_mainMovie;
-        if (!m || !params || params->argc < 1 || !params->args) return;
-        char evt[256], ip[288];
-        std::snprintf(evt, sizeof evt, "%s.__hagEvt", kMainList);
-        MSetVar(m, evt, params->args);                       // bind the itemPress event
-        std::snprintf(ip, sizeof ip, "%s.entry.index", evt); // dispatch is by entry.index
-        if (MGetNum(m, ip) == kMainHagIndex) {
-            HAG_INFO("HagUI main-menu row clicked -> opening HagUI");
-            HagMenu::Open();
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-}
-void** MainHandlerVtbl() {
-    static void* vt[8] = {};
-    if (!vt[1]) { for (auto& s : vt) s = reinterpret_cast<void*>(&HandlerDtor); vt[1] = reinterpret_cast<void*>(&MainHandlerCall); }
-    return vt;
-}
-HagHandler g_mainHandler{ nullptr, 0x40000000, 0 };
-
-void InjectMainMenuIfNeeded(void* movie) {
-    char p[288];
-    std::snprintf(p, sizeof p, "%s.entryList", kMainList);
-    if (!MIsAvail(movie, p)) return;                          // list not built yet
-    std::snprintf(p, sizeof p, "%s._listeners.itemPress", kMainList);
-    if (!MIsAvail(movie, p)) return;                          // wait for the game's own itemPress listener
-
-    // cheap presence check: our row still where we left it?
-    if (g_mainRow >= 0) {
-        std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, g_mainRow);
-        if (MGetNum(movie, p) == kMainHagIndex) return;       // still present -> nothing to do
-        g_mainRow = -1;                                       // list was rebuilt -> re-inject below
-    }
-    std::snprintf(p, sizeof p, "%s.entryList", kMainList);
-    const int n = MArrSize(movie, p);
-    if (n <= 0) return;
-
-    // find our row (if any) + Credits, in one pass
-    int hagPos = -1, credPos = -1;
-    for (int k = 0; k < n; ++k) {
-        std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, k);
-        const int iv = MGetNum(movie, p);
-        if (iv == kMainHagIndex) hagPos = k;
-        else if (iv == kCreditsIndex && credPos < 0) credPos = k;
-    }
-    if (hagPos >= 0) { g_mainRow = hagPos; return; }          // already present (fresh scan)
-    const int at = (credPos >= 0) ? credPos : n;              // directly above Credits (else append)
-
-    // splice {text:"HagUI", index:90, showIcon:false} at 'at'
-    for (int i = n; i > at; --i) {
-        GFxValue tmp{};
-        std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, i - 1); MGetVar(movie, &tmp, p);
-        std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, i);     MSetVar(movie, p, &tmp);
-    }
-    GFxValue obj{}; MCreateObj(movie, &obj);
-    std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, at);         MSetVar(movie, p, &obj);
-    GFxValue str{}; MCreateStr(movie, &str, "HagUI");
-    std::snprintf(p, sizeof p, "%s.entryList.%d.text", kMainList, at);    MSetVar(movie, p, &str);
-    std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, at);   MSetNum(movie, p, kMainHagIndex);
-    std::snprintf(p, sizeof p, "%s.entryList.%d.showIcon", kMainList, at);MSetBool(movie, p, false);
-    g_mainRow = at;
-
-    // native function + listener -- ONCE (both persist across setupMainMenu rebuilds)
-    std::snprintf(p, sizeof p, "%s.__hagPress", kMainList);
-    if (!MIsAvail(movie, p)) {
-        if (!g_mainHandler.vtbl) g_mainHandler.vtbl = MainHandlerVtbl();
-        GFxValue fn{}; MCreateFn(movie, &fn, &g_mainHandler);
-        MSetVar(movie, p, &fn);
-        std::snprintf(p, sizeof p, "%s._listeners.itemPress", kMainList);
-        const int ln = MArrSize(movie, p);                   // append (entry.index dispatch: order is irrelevant)
-        GFxValue rec{}; MCreateObj(movie, &rec);
-        std::snprintf(p, sizeof p, "%s._listeners.itemPress.%d", kMainList, ln);                  MSetVar(movie, p, &rec);
-        GFxValue listMc{}; MGetVar(movie, &listMc, kMainList);
-        std::snprintf(p, sizeof p, "%s._listeners.itemPress.%d.listenerObject", kMainList, ln);   MSetVar(movie, p, &listMc);
-        GFxValue fname{}; MCreateStr(movie, &fname, "__hagPress");
-        std::snprintf(p, sizeof p, "%s._listeners.itemPress.%d.listenerFunction", kMainList, ln); MSetVar(movie, p, &fname);
-    }
-    std::snprintf(p, sizeof p, "%s.InvalidateData", kMainList); MInvoke(movie, p);
-    HAG_INFO("HagUI: injected main-menu row above Credits (pos {})", at);
-}
-
-// The generic IMenuBase tick (0x5739C0 = MainMenu's AdvanceMovie vtable[6]) is shared by several
-// menus, so we hook it and act ONLY for MainMenu (its vtable identifies it), then run the original.
-using TickFn = void (*)(void* self);
-TickFn g_origTick = nullptr;
-void Detour_GenericTick(void* self) {
-    __try {
-        if (self && *reinterpret_cast<void**>(self) == reinterpret_cast<void*>(offsets::FromRVA(offsets::kMainMenu_vtable))) {
-            void* movie = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
-            if (movie) { g_mainMovie = movie; InjectMainMenuIfNeeded(movie); }
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    g_origTick(self);
-}
-
 }  // namespace
 
-// Hook JournalMenu::AdvanceMovie so the row is injected on the main thread once the System page's
-// list exists. Called from HagMenu::InstallTrigger (before Hooking::Commit).
+// Install the entry hooks. Called from HagMenu::InstallTrigger (before Hooking::Commit).
+//   * Main menu:   FUN_140944900 (list (re)build) -> insert row + own onMainButtonPress.
+//   * System menu: JournalMenu::AdvanceMovie -> insert row + own onCategoryButtonPress; SetSaveDisabled
+//     remap keeps the grey-out correct after our shift.
 void InstallSystemInject() {
+    const auto ms = offsets::FromRVA(offsets::kMainMenu_SetupList);
+    if (Hooking::Create<SetupFn>(ms, &Detour_MainSetup, g_origMainSetup))
+        HAG_INFO("HagUI: hooked MainMenu list-build @{:#x} (main-menu entry + AS trampoline)", ms);
+    else
+        HAG_ERR("HagUI: failed to hook MainMenu list-build");
+
     const auto adv = offsets::FromRVA(offsets::kJournalMenu_AdvanceMovie);
     if (Hooking::Create<AdvanceFn>(adv, &Detour_JournalAdvance, g_origAdvance))
-        HAG_INFO("HagUI: hooked JournalMenu::AdvanceMovie @{:#x} (runtime System-menu injection)", adv);
+        HAG_INFO("HagUI: hooked JournalMenu::AdvanceMovie @{:#x} (System-menu entry + AS trampoline)", adv);
     else
         HAG_ERR("HagUI: failed to hook JournalMenu::AdvanceMovie");
 
@@ -325,14 +323,6 @@ void InstallSystemInject() {
         HAG_INFO("HagUI: hooked SetSaveDisabled @{:#x} (grey-out shift fix)", ssd);
     else
         HAG_ERR("HagUI: failed to hook SetSaveDisabled");
-
-    // Main-menu injection: hook the generic menu tick (MainMenu's AdvanceMovie); the detour filters
-    // to MainMenu only. Replaces the modified StartMenu.swf with a runtime, SkyUI-safe injector.
-    const auto tick = offsets::FromRVA(offsets::kIMenuBase_6);
-    if (Hooking::Create<TickFn>(tick, &Detour_GenericTick, g_origTick))
-        HAG_INFO("HagUI: hooked generic menu tick @{:#x} (main-menu injection, MainMenu-filtered)", tick);
-    else
-        HAG_ERR("HagUI: failed to hook generic menu tick");
 }
 
 }  // namespace hag::ui

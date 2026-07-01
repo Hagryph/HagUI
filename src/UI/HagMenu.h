@@ -16,8 +16,9 @@ public:
     static void  InstallTrigger();  // trampoline-hook the Main Menu to add the "HagUI" entry
 };
 
-// Hooks JournalMenu::AdvanceMovie to inject the "HagUI" row into the in-game System menu at runtime
-// (no SWF file), attaching a native click handler. Defined in GfxInject.cpp.
+// Installs the "HagUI" entry into the Main Menu and the in-game System menu at runtime (no SWF file):
+// hooks each menu's list-build path, inserts the row, and trampolines the menu's AS click-dispatch
+// method so vanilla rows keep flowing through the game's own handler. Defined in GfxInject.cpp.
 void InstallSystemInject();
 
 }  // namespace hag::ui
