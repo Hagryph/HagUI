@@ -164,6 +164,7 @@ function showPage(idx)
    // tab 0 is always the Welcome page; tabs 1..N are registered option pages (idx-1 in HAG_PAGES).
    if (idx == 0) { _root.buildWelcomePage(c, card._cx, card._cyTop, card._cw2); }
    else { _root.buildOptionPage(c, card._cx, card._cyTop, card._cw2, idx - 1); }
+   _root.showCloseButton(card, idx == 0);   // CLOSE button is exclusive to the Welcome tab
 }
 function buildWelcomePage(c, x, y, w)
 {
@@ -176,6 +177,23 @@ function buildWelcomePage(c, x, y, w)
    _root.rect(dv, x, y + 112, 250, 2); dv.endFill();
    _root.mkText(c, "tag", 4, x, y + 132, w, 70,
       "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &#8212;<br>configuration, tools, and more, gathered in one place.</font>");
+}
+
+// The CLOSE button + "or press ESC" hint are EXCLUSIVE to the Welcome tab. On any other tab we
+// remove them (option pages close via ESC or an outside-click, handled in HagUI_Menu.as). Called
+// by showPage() on every tab change; geometry comes from card._btnX/_btnY/_btnW/_btnH.
+function showCloseButton(card, on)
+{
+   card.closeBtn.removeMovieClip();
+   card.closeBtn_glow.removeMovieClip();
+   card.hint.removeMovieClip();
+   if (on)
+   {
+      _root.makeButton(card, "closeBtn", 28, card._btnX, card._btnY, card._btnW, card._btnH,
+         "<p align='center'><font face='$EverywhereBoldFont' size='15' color='#E0B34A'>CLOSE</font></p>", "CloseHagUI");
+      _root.mkText(card, "hint", 31, card._btnX + card._btnW + 18, card._btnY + 11, 230, 22,
+         "<font face='$EverywhereFont' size='14' color='#6B6456'>or press&nbsp;&nbsp;ESC</font>");
+   }
 }
 
 // ---- option pages (registered by mods through the HagUI host API and pushed into the movie by C++
@@ -349,19 +367,12 @@ function buildWelcome()
    card._nx = px; card._ny = cy + 28; card._nw = cwid;
    buildNav(card, px, cy + 28, cwid);
 
+   // CLOSE button geometry; the button itself is drawn by showCloseButton() (Welcome tab only).
+   card._btnX = px; card._btnY = cy + ch - 86; card._btnW = 152; card._btnH = 40;
+
    // ---- content area: the active tab's page (rebuilt by showPage on tab change) ----
    card._cx = px; card._cyTop = cy + 86; card._cw2 = cwid;
-   showPage(_root.hagActive);
-
-   // real CLOSE button (hover-highlights, closes on its own click) + a quiet ESC hint
-   var btnW = 152;
-   var btnH = 40;
-   var btnX = px;
-   var btnY = cy + ch - 86;
-   makeButton(card, "closeBtn", 28, btnX, btnY, btnW, btnH,
-      "<p align='center'><font face='$EverywhereBoldFont' size='15' color='#E0B34A'>CLOSE</font></p>", "CloseHagUI");
-   mkText(card, "hint", 31, btnX + btnW + 18, btnY + 11, 230, 22,
-      "<font face='$EverywhereFont' size='14' color='#6B6456'>or press&nbsp;&nbsp;ESC</font>");
+   showPage(_root.hagActive);   // also (re)draws the Welcome-only CLOSE button via showCloseButton
 
    // footer mark (bottom-right inside the card)
    mkText(card, "foot", 24, cx + cw - 230, cy + ch - 40, 200, 20,
