@@ -85,12 +85,12 @@ constexpr int kHagIndex = 90;   // marker: entry.index (main) / entry.hagIndex (
 // ================================================================================================
 // MAIN MENU  --  StartMenu.onMainButtonPress dispatches by CARRIED entry.index (no positional fix-up).
 // Hook FUN_140944900 (the sendMenuProperties driver): after it rebuilds MainList.entryList, (re)insert
-// our row above Credits and own onMainButtonPress. setupMainMenu ClearList()s each call, so we always
-// re-insert; the method trampoline persists (it's on the StartMenu instance, not the wiped list).
+// our row directly below Load and own onMainButtonPress. setupMainMenu ClearList()s each call, so we
+// always re-insert; the method trampoline persists (it's on the StartMenu instance, not the wiped list).
 // ================================================================================================
 constexpr const char* kStartMenu = "_root.MenuHolder.Menu_mc";
 constexpr const char* kMainList  = "_root.MenuHolder.Menu_mc.MainListHolder.List_mc";
-constexpr int kCreditsIndex = 8;    // StartMenu.CREDITS_INDEX -- we insert directly above it
+constexpr int kLoadIndex = 2;       // StartMenu.LOAD_INDEX -- we insert directly below it
 
 void* g_mainMovie = nullptr;
 HagHandler g_mainHandler{ nullptr, 0x40000000, 0 };
@@ -121,16 +121,16 @@ void InjectMainMenu(void* movie) {
     const int n = MArrSize(movie, p);
     if (n <= 0) return;
 
-    // find our row (if still present after a rebuild) + Credits, in one pass
-    int hagPos = -1, credPos = -1;
+    // find our row (if still present after a rebuild) + Load, in one pass
+    int hagPos = -1, loadPos = -1;
     for (int k = 0; k < n; ++k) {
         std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, k);
         const int iv = MGetNum(movie, p);
         if (iv == kHagIndex && hagPos < 0) hagPos = k;
-        else if (iv == kCreditsIndex && credPos < 0) credPos = k;
+        else if (iv == kLoadIndex && loadPos < 0) loadPos = k;
     }
-    if (hagPos < 0) {                                        // (re)insert {text,index:90} above Credits
-        const int at = (credPos >= 0) ? credPos : n;
+    if (hagPos < 0) {                                        // (re)insert {text,index:90} directly below Load
+        const int at = (loadPos >= 0) ? loadPos + 1 : n;
         for (int i = n; i > at; --i) {
             GFxValue tmp{};
             std::snprintf(p, sizeof p, "%s.entryList.%d", kMainList, i - 1); MGetVar(movie, &tmp, p);
@@ -143,7 +143,7 @@ void InjectMainMenu(void* movie) {
         std::snprintf(p, sizeof p, "%s.entryList.%d.index", kMainList, at);    MSetNum(movie, p, kHagIndex);
         std::snprintf(p, sizeof p, "%s.entryList.%d.showIcon", kMainList, at); MSetBool(movie, p, false);
         std::snprintf(p, sizeof p, "%s.InvalidateData", kMainList);           MInvoke(movie, p);
-        HAG_INFO("HagUI: inserted main-menu row above Credits (pos {})", at);
+        HAG_INFO("HagUI: inserted main-menu row below Load (pos {})", at);
     }
     if (!g_mainHandler.vtbl) {
         static void* vt[8] = {};
