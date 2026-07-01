@@ -42,6 +42,7 @@ struct Option {
     // --- read-only live widgets (ProgressBar / Model3D) ---
     std::uint32_t color = 0xE0B34A;                    // ProgressBar fill colour (0xRRGGBB)
     SampleFn      sample;                              // ProgressBar: polled each tick for frac + text
+    std::uint32_t formID = 0x14;                       // Model3D: which TESForm to show (0x14 = player)
 };
 
 // Fluent page builder.
@@ -59,7 +60,7 @@ public:
     Page& Button(std::string id, std::string label, ClickFn onClick);
     // Read-only live widgets (no onChange): a progress bar polled each tick, and a 3D character view.
     Page& ProgressBar(std::string id, std::string label, std::uint32_t color, SampleFn sample);
-    Page& Model3D(std::string id, std::string label);
+    Page& Model3D(std::string id, std::string label, std::uint32_t formID);
 
     const std::string&         Title()   const { return m_title; }
     Scope                      GetScope() const { return m_scope; }

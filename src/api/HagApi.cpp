@@ -50,9 +50,10 @@ Page& Page::ProgressBar(std::string id, std::string label, std::uint32_t color, 
     return *this;
 }
 
-Page& Page::Model3D(std::string id, std::string label) {
+Page& Page::Model3D(std::string id, std::string label, std::uint32_t formID) {
     Option o;
     o.id = std::move(id); o.label = std::move(label); o.control = Control::Model3D;
+    o.formID = formID;
     m_options.push_back(std::move(o));
     return *this;
 }

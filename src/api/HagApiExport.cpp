@@ -96,9 +96,9 @@ void C_AddProgressBar(HagUI_PageHandle* page, const char* id, const char* label,
     AsPage(page)->ProgressBar(id ? id : "", label ? label : "", color, WrapBar(sample, user));
 }
 
-void C_AddModel3D(HagUI_PageHandle* page, const char* id, const char* label) {
+void C_AddModel3D(HagUI_PageHandle* page, const char* id, const char* label, std::uint32_t formID) {
     if (!page) return;
-    AsPage(page)->Model3D(id ? id : "", label ? label : "");
+    AsPage(page)->Model3D(id ? id : "", label ? label : "", formID);
 }
 
 // The single interface table handed to every consumer (function addresses are
