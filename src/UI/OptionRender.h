@@ -16,6 +16,10 @@ public:
     // bar's sample() and pushes fraction+text, then calls _root.HagUpdateBars so the AS resizes the
     // existing bar clips (no full rebuild). Call every menu tick, after BuildIfNeeded.
     static void UpdateLive(void* movieView);
+
+    // Set the menu context from WHERE HagUI was opened: false = Main Menu (Global pages only),
+    // true = in-game / a save is loaded (Global + PerSave pages). Forces a rebuild next tick.
+    static void SetContext(bool inGame);
 };
 
 }  // namespace hag::ui

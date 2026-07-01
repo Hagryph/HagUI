@@ -20,10 +20,10 @@ namespace {
 using namespace hag::ui::gfx;
 using namespace hag::api;
 
-// Which pages are visible. InGame is the superset (Global + PerSave); until we have
-// a reliable main-menu-vs-in-game probe, use it so every Global page shows in both
-// contexts (there are no PerSave pages yet, so nothing leaks into the main menu).
-MenuContext g_ctx      = MenuContext::InGame;
+// Which pages are visible. Set at open time by OptionRender::SetContext from WHERE HagUI was opened
+// (main-menu button => MainMenu = Global only; in-game System menu => InGame = Global + PerSave).
+// Default MainMenu is the safe choice so PerSave pages (e.g. Character) never leak into the main menu.
+MenuContext g_ctx      = MenuContext::MainMenu;
 void*       g_builtView = nullptr;   // movie we last built into (rebuild when it changes)
 
 double ValueToNum(const Value& v) {
@@ -156,6 +156,11 @@ void OptionRender::UpdateLive(void* view) {
         if (!MIsAvail(view, "_root.HagUpdateBars")) return;
         DoUpdateLive(view);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+void OptionRender::SetContext(bool inGame) {
+    g_ctx = inGame ? MenuContext::InGame : MenuContext::MainMenu;
+    g_builtView = nullptr;   // force a rebuild so the visible tab set matches the new context
 }
 
 }  // namespace hag::ui

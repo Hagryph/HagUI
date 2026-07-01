@@ -186,7 +186,7 @@ function showCloseButton(card, on)
 {
    card.closeBtn.removeMovieClip();
    card.closeBtn_glow.removeMovieClip();
-   card.hint.removeMovieClip();
+   card.hint.removeTextField();   // hint is a TextField (mkText), NOT a MovieClip -> removeMovieClip no-ops
    if (on)
    {
       _root.makeButton(card, "closeBtn", 28, card._btnX, card._btnY, card._btnW, card._btnH,
@@ -355,7 +355,9 @@ function buildOptionPage(c, x, y, w, pageIdx)
    if (modelIdx >= 0)
    {
       var leftW = Math.round(w * 0.42);
-      _root.buildModel3D(c, "model", 8, x, topY, leftW, 360, pg.opts[modelIdx]);
+      var mh = _root.HagWelcome.card._cyBot - topY;   // fill the left column to the card's content bottom
+      if (!(mh > 80)) { mh = 280; }
+      _root.buildModel3D(c, "model", 8, x, topY, leftW, mh, pg.opts[modelIdx]);
       colX = x + leftW + 28;
       colW = w - leftW - 28;
    }
@@ -499,7 +501,7 @@ function buildWelcome()
    card._btnX = px; card._btnY = cy + ch - 86; card._btnW = 152; card._btnH = 40;
 
    // ---- content area: the active tab's page (rebuilt by showPage on tab change) ----
-   card._cx = px; card._cyTop = cy + 86; card._cw2 = cwid;
+   card._cx = px; card._cyTop = cy + 86; card._cw2 = cwid; card._cyBot = cy + ch - 52;  // content bottom (above footer)
    showPage(_root.hagActive);   // also (re)draws the Welcome-only CLOSE button via showCloseButton
 
    // footer mark (bottom-right inside the card)

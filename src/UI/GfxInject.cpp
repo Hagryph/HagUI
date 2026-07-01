@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "UI/HagMenu.h"
+#include "UI/OptionRender.h"
 #include "Log.h"
 #include "Offsets.h"
 #include "Hooking.h"
@@ -105,6 +106,7 @@ void MainPress(HagHandler*, FnParams* params) {
         std::snprintf(ip, sizeof ip, "%s.entry.index", evt);
         if (MGetNum(m, ip) == kHagIndex) {
             HAG_INFO("HagUI main-menu row -> opening HagUI");
+            OptionRender::SetContext(false);                 // Main Menu: Global pages only (no PerSave)
             HagMenu::Open();
             return;                                          // ours: do NOT forward (no vanilla cancel)
         }
@@ -205,6 +207,7 @@ void CatPress(HagHandler*, FnParams* params) {
         std::snprintf(q, sizeof q, "%s.entry.hagIndex", evt);
         if (MGetNum(m, q) == kHagIndex) {
             HAG_INFO("HagUI System-menu row -> opening HagUI");
+            OptionRender::SetContext(true);                  // in-game (save loaded): show PerSave pages
             HagMenu::Open();
             return;                                          // ours: do NOT forward
         }
