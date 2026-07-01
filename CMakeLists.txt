@@ -13,7 +13,9 @@ add_library(HagUI SHARED
     src/Hooking.cpp
     src/UI/HagMenu.cpp
     src/UI/GfxInject.cpp
+    src/UI/OptionRender.cpp
     src/api/HagApi.cpp
+    src/api/HagApiExport.cpp
 )
 
 target_include_directories(HagUI PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/../shared")

@@ -5,6 +5,9 @@
 #include "Hooking.h"
 #include "Offsets.h"
 #include "UI/HagMenu.h"
+#include "api/HagApi.h"
+
+#include <variant>
 
 namespace hag {
 
@@ -22,6 +25,20 @@ void OnSKSEMessage(skse::Message* msg) {
         ui::HagMenu::Register();
     }
 }
+
+// Phase-A self-test: a compiled-in Global page so the option-page pipeline (cross-DLL API model ->
+// movie push -> checkbox render -> change callback) can be verified BEFORE HagGeneral exists. Flip
+// kRegisterTestPage to false (or delete) once HagGeneral is the real consumer.
+constexpr bool kRegisterTestPage = true;
+void RegisterTestPage() {
+    using namespace hag::api;
+    HagUI::Get().RegisterPage("General (test)", Scope::Global)
+        .Toggle("test_a", "Test toggle A", false,
+                [](const Value& v) { HAG_INFO("test toggle A -> {}", std::get<bool>(v)); })
+        .Toggle("test_b", "Test toggle B", true,
+                [](const Value& v) { HAG_INFO("test toggle B -> {}", std::get<bool>(v)); });
+    HAG_INFO("registered Phase-A test page 'General (test)'");
+}
 }  // namespace
 
 bool Plugin::OnLoad(const skse::Interface* skse) {
@@ -36,6 +53,10 @@ bool Plugin::OnLoad(const skse::Interface* skse) {
     }
 
     ui::HagMenu::InstallTrigger();  // (debug) click Credits -> open HagUIMenu
+
+    if (kRegisterTestPage) {
+        RegisterTestPage();
+    }
 
     if (skse) {
         auto* msg = reinterpret_cast<skse::MessagingInterface*>(

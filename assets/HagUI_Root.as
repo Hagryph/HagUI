@@ -161,7 +161,9 @@ function showPage(idx)
    var card = _root.HagWelcome.card;
    card.content.removeMovieClip();
    var c = card.createEmptyMovieClip("content", 22);
+   // tab 0 is always the Welcome page; tabs 1..N are registered option pages (idx-1 in HAG_PAGES).
    if (idx == 0) { _root.buildWelcomePage(c, card._cx, card._cyTop, card._cw2); }
+   else { _root.buildOptionPage(c, card._cx, card._cyTop, card._cw2, idx - 1); }
 }
 function buildWelcomePage(c, x, y, w)
 {
@@ -174,6 +176,118 @@ function buildWelcomePage(c, x, y, w)
    _root.rect(dv, x, y + 112, 250, 2); dv.endFill();
    _root.mkText(c, "tag", 4, x, y + 132, w, 70,
       "<font face='$EverywhereFont' size='18' color='#9C9486'>Your private control room for every Hagryph mod &#8212;<br>configuration, tools, and more, gathered in one place.</font>");
+}
+
+// ---- option pages (registered by mods through the HagUI host API and pushed into the movie by C++
+// as a flat _root.hagPage<i>_opt<j>_* model; HagBuildPages() reads it into _root.HAG_PAGES). ----
+
+// gold checkbox box: hairline square, faint fill (brighter when checked), gold check glyph when on.
+function paintCheckbox(box, checked, hover)
+{
+   box.clear();
+   var ba = 42;
+   if (hover) { ba = 82; }
+   box.lineStyle(1, 0xE0B34A, ba, true, "none", "round", "round");
+   var fa = 6;
+   if (checked) { fa = 22; }
+   box.beginFill(0xE0B34A, fa);
+   _root.rrPath(box, 0, 0, 22, 22, 5);
+   box.endFill();
+   if (checked)
+   {
+      box.lineStyle(2, 0xE0B34A, 100, true, "none", "round", "round");
+      box.moveTo(5, 11); box.lineTo(9, 16); box.lineTo(17, 6);
+   }
+}
+// a full-width clickable row: checkbox + label. Click flips the box and reports the new value to
+// C++ via the native _root.hagSetOption(pageIdx, optIdx, value) function (all Number args).
+function makeCheckbox(parent, name, depth, x, y, w, op)
+{
+   var row = parent.createEmptyMovieClip(name, depth);
+   row._x = x; row._y = y;
+   row._op = op;
+   row._checked = (op.value != 0);
+   row.beginFill(0xFFFFFF, 0); _root.rect(row, 0, 0, w, 30); row.endFill();   // invisible hit area
+   var box = row.createEmptyMovieClip("box", 2);
+   box._y = 4;
+   _root.paintCheckbox(box, row._checked, false);
+   _root.mkText(row, "lbl", 3, 36, 3, w - 36, 26,
+      "<font face='$EverywhereFont' size='17' color='#ECE6DA'>" + op.label + "</font>");
+   row.onRollOver = function() { _root.paintCheckbox(this.box, this._checked, true); };
+   row.onRollOut  = function() { _root.paintCheckbox(this.box, this._checked, false); };
+   row.onReleaseOutside = function() { _root.paintCheckbox(this.box, this._checked, false); };
+   row.onRelease  = function()
+   {
+      this._checked = !this._checked;
+      _root.paintCheckbox(this.box, this._checked, true);
+      if (_root.hagSetOption) { _root.hagSetOption(this._op.pageIdx, this._op.optIdx, this._checked ? 1 : 0); }
+   };
+   return row;
+}
+function buildOptionPage(c, x, y, w, pageIdx)
+{
+   var pg = _root.HAG_PAGES[pageIdx];
+   if (!pg) { return; }
+   _root.mkText(c, "hd", 1, x, y, w, 26,
+      "<font face='$EverywhereBoldFont' size='21' color='#ECE6DA'>" + pg.title + "</font>");
+   var rowY = y + 44;
+   var i = 0;
+   while (i < pg.opts.length)
+   {
+      var op = pg.opts[i];
+      if (op.type == 0)   // 0 == Toggle -> checkbox row (other control types added later)
+      {
+         _root.makeCheckbox(c, "row" + i, 10 + i * 2, x, rowY, w, op);
+         rowY = rowY + 40;
+      }
+      i = i + 1;
+   }
+}
+// Called by C++ (OptionRender::BuildIfNeeded) after it writes the flat model into the movie.
+// Reads _root.hagPage<i>_* into _root.HAG_PAGES, rebuilds the tab strip (Welcome + one tab per
+// page), and re-renders the active tab. AS2 has no object literals under FFDec, so build with new Object().
+function HagBuildPages()
+{
+   _root.HAG_PAGES = new Array();
+   var pc = Number(_root.hagPageCount);
+   if (!(pc > 0)) { pc = 0; }
+   var i = 0;
+   while (i < pc)
+   {
+      var pg = new Object();
+      pg.title = String(_root["hagPage" + i + "_title"]);
+      pg.opts = new Array();
+      var oc = Number(_root["hagPage" + i + "_optCount"]);
+      if (!(oc > 0)) { oc = 0; }
+      var j = 0;
+      while (j < oc)
+      {
+         var op = new Object();
+         op.label = String(_root["hagPage" + i + "_opt" + j + "_label"]);
+         op.type = Number(_root["hagPage" + i + "_opt" + j + "_type"]);
+         op.value = Number(_root["hagPage" + i + "_opt" + j + "_value"]);
+         op.pageIdx = i;
+         op.optIdx = j;
+         pg.opts.push(op);
+         j = j + 1;
+      }
+      _root.HAG_PAGES.push(pg);
+      i = i + 1;
+   }
+   // tabs: Welcome first, then one per registered page
+   _root.HAG_TABS = new Array();
+   _root.HAG_TABS.push("WELCOME");
+   i = 0;
+   while (i < _root.HAG_PAGES.length)
+   {
+      _root.HAG_TABS.push(_root.HAG_PAGES[i].title.toUpperCase());
+      i = i + 1;
+   }
+   if (_root.hagActive >= _root.HAG_TABS.length) { _root.hagActive = 0; }
+   var card = _root.HagWelcome.card;
+   if (card.nav) { card.nav.removeMovieClip(); }
+   _root.buildNav(card, card._nx, card._ny, card._nw);
+   _root.showPage(_root.hagActive);
 }
 
 function buildWelcome()
@@ -260,8 +374,12 @@ Shared.GlobalFunc.MaintainTextFormat();
 // Hide the vanilla Credits chrome; Menu_mc stays (carries handleInput + focus) but renders nothing.
 BackMouseButton._visible = false;
 BackGamepadButton._visible = false;
-// tab registry (for now just Welcome; addTab("LABEL") + a showPage() branch adds more)
+// tab registry: Welcome plus any option pages registered by mods (added by HagBuildPages()).
 _root.HAG_TABS = ["WELCOME"];
+_root.HAG_PAGES = new Array();
 _root.hagActive = 0;
 buildWelcome();
+// Signal to C++ (OptionRender::BuildIfNeeded) that the boot has run and _root.HagBuildPages /
+// _root.hagSetOption can now be used. C++ pushes the page model and calls HagBuildPages once it sees this.
+_root.hagReady = true;
 stop();

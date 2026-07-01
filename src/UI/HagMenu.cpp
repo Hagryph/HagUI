@@ -1,5 +1,7 @@
 #include "PCH.h"
 #include "UI/HagMenu.h"
+#include "UI/OptionRender.h"
+#include "api/HagApi.h"
 #include "Log.h"
 #include "Offsets.h"
 #include "Hooking.h"
@@ -22,6 +24,7 @@ namespace {
     void* HagDtor(void* self, unsigned int flags);
     void  HagRegisterFuncs(void* self, void* movieView);
     unsigned int HagProcessMessage(void* self, void* msg);
+    void  HagTick(void* self);   // AdvanceMovie(slot 6): pump debounce + build option pages, then advance
 
     void** Vtable() {
         static void* vt[9] = {};
@@ -32,11 +35,24 @@ namespace {
             vt[3] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_3));
             vt[4] = reinterpret_cast<void*>(&HagProcessMessage);            // ProcessMessage
             vt[5] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_5));
-            vt[6] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_6)); // generic tick
+            vt[6] = reinterpret_cast<void*>(&HagTick);                      // AdvanceMovie -> our tick
             vt[7] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_7));
             vt[8] = reinterpret_cast<void*>(offsets::FromRVA(offsets::kIMenuBase_8));
         }
         return vt;
+    }
+
+    // AdvanceMovie (IMenu vtable slot 6), run every frame HagUI is up. We pump the
+    // option debounce timers and (once per movie) build the registered option pages,
+    // then forward to the game's generic tick (kIMenuBase_6, 0x5739C0) so the SWF
+    // still advances/renders. That address is MinHook-trampolined by GfxInject's
+    // Detour_GenericTick, which filters to MainMenu and otherwise just calls the
+    // original — so forwarding here is safe (no injection runs for our menu).
+    void HagTick(void* self) {
+        hag::api::HagUI::Get().PumpDebounce(::GetTickCount64());
+        void* view = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + offsets::menu_layout::kMovieView);
+        if (view) OptionRender::BuildIfNeeded(view);
+        reinterpret_cast<void (*)(void*)>(offsets::FromRVA(offsets::kIMenuBase_6))(self);
     }
 
     void* HagDtor(void* self, unsigned int flags) {
